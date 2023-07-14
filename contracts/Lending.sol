@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "hardhat/console.sol";
 
 contract Claimable is Ownable {
     function claimToken(
@@ -35,6 +36,7 @@ contract Lending is Claimable {
         uint256 ehtDebtAmount;
         uint256 usdtColAmount;
         uint256 usdtDebtAmount;
+        address userAddress;
     }
 
     struct Interest {
@@ -64,7 +66,8 @@ contract Lending is Claimable {
     address ethAddress;
     address usdtAddress;
     uint liquidationThreshhold = 90;
-    uint decimal = 1000000;
+    // I am using this decimal when calcuate reward
+    uint decimal = 1000000000;
 
     // ---------------------------------------------------------------------
     // EVENTS
@@ -81,8 +84,10 @@ contract Lending is Claimable {
         rewardAddress = _rewardAddress;
         ethAddress = _ethAdddress;
         usdtAddress = _usdtAddress;
-        addPool(ethAddress, 1, 50, 4, 4, 0, 0);
-        addPool(usdtAddress, 1, 50, 4, 4, 0, 0);
+        // 10 *decimal/(31,536,000 *100) = 30 so 10% = 30
+        addPool(ethAddress, 1, 50, 5, 10, 0, 0);
+        // 10 *decimal/(31,536,000 *100)
+        addPool(usdtAddress, 1, 50, 5, 10, 0, 0);
     }
 
     function addPool(
@@ -97,8 +102,9 @@ contract Lending is Claimable {
         PoolInfo storage newPoolInfo = poolInfos[_tokenAddress];
         newPoolInfo.rate = _rate;
         newPoolInfo.LTV = _LTV;
-        newPoolInfo.depositApy = _depositApy;
-        newPoolInfo.borrowApy = _borrowApy;
+        // 10 *decimal/(31,536,000 *100) = 30 so 10% = 30
+        newPoolInfo.depositApy = _depositApy * 3;
+        newPoolInfo.borrowApy = _borrowApy * 3;
         newPoolInfo.totalAmount = _totalAmount;
         newPoolInfo.borrowAmount = _borrowAmount;
     }
@@ -142,8 +148,10 @@ contract Lending is Claimable {
         return ethDebt + usdtDebt;
     }
 
-    function calcuateInterest() public view returns (Interest memory) {
-        uint256 userIndex = userInfoIndex[msg.sender];
+    function calcuateInterest(
+        address _account
+    ) public view returns (Interest memory) {
+        uint256 userIndex = userInfoIndex[_account];
         require(userIndex > 0, "User index should be bigger than 0.");
         UserInfo storage user = userInfos[userIndex];
 
@@ -153,29 +161,42 @@ contract Lending is Claimable {
             pekoAmount: 0
         });
         Position storage position = user.position;
+        uint256 lastTimestamp = user.lastInterest;
+        console.log("lastTimestamp", lastTimestamp);
+        uint256 timeDelta = block.timestamp - lastTimestamp;
+        console.log("timeDelta", timeDelta);
+        console.log("current time", block.timestamp);
         // calu interest
         PoolInfo storage ethPool = poolInfos[ethAddress];
         PoolInfo storage usdtPool = poolInfos[usdtAddress];
         if (position.tokenColAmount[ethAddress] > 0) {
             interest.ethColAmount +=
-                (position.tokenColAmount[ethAddress] * ethPool.depositApy) /
+                (position.tokenColAmount[ethAddress] *
+                    ethPool.depositApy *
+                    timeDelta) /
                 decimal;
             interest.pekoAmount +=
-                (position.tokenColAmount[ethAddress] * ethPool.depositApy) /
+                (position.tokenColAmount[ethAddress] *
+                    ethPool.depositApy *
+                    timeDelta) /
                 decimal;
         } else {
             interest.usdtColAmount +=
-                (position.tokenColAmount[usdtAddress] * usdtPool.depositApy) /
+                (position.tokenColAmount[usdtAddress] *
+                    usdtPool.depositApy *
+                    timeDelta) /
                 decimal;
             interest.pekoAmount +=
-                (position.tokenColAmount[usdtAddress] * usdtPool.depositApy) /
+                (position.tokenColAmount[usdtAddress] *
+                    usdtPool.depositApy *
+                    timeDelta) /
                 decimal;
         }
         return interest;
     }
 
     function liquidityInterest(address _account) private {
-        Interest memory interest = calcuateInterest();
+        Interest memory interest = calcuateInterest(_account);
         if (interest.ethColAmount > 0) {
             (bool sent, ) = payable(_account).call{
                 value: interest.ethColAmount
@@ -205,6 +226,7 @@ contract Lending is Claimable {
             liquidityInterest(msg.sender);
         }
         UserInfo storage currentUserInfo = userInfos[userIndex];
+        currentUserInfo.lastInterest = block.timestamp;
         require(
             currentUserInfo.position.tokenDebtAmount[_tokenAddress] == 0,
             "Please repay token first."
@@ -219,6 +241,11 @@ contract Lending is Claimable {
                 ),
                 "deposit failed"
             );
+            poolInfos[usdtAddress].totalAmount += _amount;
+        } else {
+            poolInfos[ethAddress].totalAmount +=
+                _amount *
+                calcTokenPrice(ethAddress);
         }
     }
 
@@ -244,8 +271,12 @@ contract Lending is Claimable {
         if (_tokenAddress == ethAddress) {
             (bool sent, ) = payable(msg.sender).call{value: _amount}("");
             require(sent, "failed to send eth interest.");
+            poolInfos[ethAddress].borrowAmount +=
+                _amount *
+                calcTokenPrice(ethAddress);
         } else {
             IERC20(usdtAddress).transfer(msg.sender, _amount);
+            poolInfos[usdtAddress].borrowAmount += _amount;
         }
     }
 
@@ -264,8 +295,12 @@ contract Lending is Claimable {
                 ),
                 "deposit failed"
             );
+            poolInfos[usdtAddress].borrowAmount -= _amount;
         } else {
             require(msg.value >= _amount, "Please pay more.");
+            poolInfos[ethAddress].borrowAmount -=
+                _amount *
+                calcTokenPrice(ethAddress);
         }
     }
 
@@ -274,6 +309,7 @@ contract Lending is Claimable {
         uint256 userIndex = userInfoIndex[msg.sender];
         require(userIndex > 0, "User index should be bigger than 0.");
         UserInfo storage currentUserInfo = userInfos[userIndex];
+        liquidityInterest(msg.sender);
         uint256 withdrawAmountToUsdt = calcTokenPrice(_tokenAddress) * _amount;
         uint256 userCol = calcCollater() - calcDebt();
         uint LTV = poolInfos[_tokenAddress].LTV;
@@ -316,11 +352,17 @@ contract Lending is Claimable {
                 ),
                 "deposit failed"
             );
+            poolInfos[usdtAddress].borrowAmount -= currentUserInfo
+                .position
+                .tokenDebtAmount[usdtAddress];
         } else {
             IERC20(usdtAddress).transfer(
                 msg.sender,
                 currentUserInfo.position.tokenColAmount[usdtAddress]
             );
+            poolInfos[ethAddress].borrowAmount -=
+                currentUserInfo.position.tokenDebtAmount[ethAddress] *
+                calcTokenPrice(ethAddress);
         }
         liquidityInterest(_account);
     }
@@ -335,16 +377,19 @@ contract Lending is Claimable {
                     currentUserInfo.position.tokenColAmount[ethAddress],
                     currentUserInfo.position.tokenDebtAmount[ethAddress],
                     currentUserInfo.position.tokenColAmount[usdtAddress],
-                    currentUserInfo.position.tokenDebtAmount[usdtAddress]
+                    currentUserInfo.position.tokenDebtAmount[usdtAddress],
+                    msg.sender
                 );
             return currentUserInfoForDisplay;
+        } else {
+            return UserInfoForDisplay(0, 0, 0, 0, msg.sender);
         }
-        return UserInfoForDisplay(0, 0, 0, 0);
     }
 
     function getUserInfo() public view returns (UserInfoForDisplay memory) {
         uint256 userIndex = userInfoIndex[msg.sender];
-        return fetchUserInfo(userIndex);
+        UserInfoForDisplay memory userInfoDisplay = fetchUserInfo(userIndex);
+        return userInfoDisplay;
     }
 
     function listUserInfo() public view returns (UserInfoForDisplay[] memory) {
@@ -355,6 +400,15 @@ contract Lending is Claimable {
             userList[i] = (fetchUserInfo(i));
         }
         return userList;
+    }
+
+    function getMarketInfo() public view returns (uint256, uint256) {
+        PoolInfo storage ethPool = poolInfos[ethAddress];
+        PoolInfo storage usdtPool = poolInfos[usdtAddress];
+        return (
+            ethPool.totalAmount + usdtPool.totalAmount,
+            ethPool.borrowAmount + usdtPool.borrowAmount
+        );
     }
 
     receive() external payable {}
