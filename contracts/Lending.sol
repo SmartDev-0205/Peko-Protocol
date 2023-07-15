@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.0;
+// import "hardhat/console.sol";
 
 library SafeMath {
     /**
@@ -396,9 +397,9 @@ contract Lending is Claimable {
         usdtAddress = _usdtAddress;
         poolAddress = _poolAddress;
         // 10 *decimal/(31,536,000 *100) = 30 so 10% = 30
-        addPool(ethAddress, 80, 500, 10000, 0, 0);
+        addPool(ethAddress, 80, 5, 10, 0, 0);
         // 10 *decimal/(31,536,000 *100)
-        addPool(usdtAddress, 80, 500, 10000, 0, 0);
+        addPool(usdtAddress, 80, 5, 10, 0, 0);
     }
 
     // Liquidate max percent
@@ -692,8 +693,7 @@ contract Lending is Claimable {
         uint256 ethBorrowAmount = currentUserInfo.tokenBorrowAmount[ethAddress] + currentUserInfo.tokenInterestAmount[ethAddress];
         uint256 usdtBorrowAmount = currentUserInfo.tokenBorrowAmount[usdtAddress] + currentUserInfo.tokenInterestAmount[usdtAddress];
 
-
-        require (ethBorrowAmount.div(10000) * 9999 > msg.value);
+        require (msg.value > ethBorrowAmount.div(10000) * 9999,"Not enough eth");
         require(
             IERC20(usdtAddress).transferFrom(
                 msg.sender,
@@ -821,6 +821,13 @@ contract Lending is Claimable {
             calcTokenPrice(ethAddress, ethPool.borrowAmount) +
                 usdtPool.borrowAmount
         );
+    }
+
+    function getPoolInfo(address _poolAddress) public view returns (PoolInfo memory poolInfo) {
+        PoolInfo memory currentPool = poolInfos[_poolAddress];
+        currentPool.depositApy =  currentPool.depositApy.div(3);
+        currentPool.borrowApy =  currentPool.borrowApy.div(3);
+        return currentPool;
     }
 
     receive() external payable {}

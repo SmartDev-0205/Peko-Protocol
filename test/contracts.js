@@ -74,9 +74,8 @@ describe("contracts test", function () {
 
     // eth deposit from add1
     var tx = await lendingContract
-      .connect(addr1)
-      .deposit(wethContract.address, toBigNum("2", 18), {
-        value: toBigNum("2", 18),
+      .deposit(wethContract.address, toBigNum("0.01", 18), {
+        value: toBigNum("0.01", 18),
       });
     await tx.wait();
 
@@ -101,6 +100,9 @@ describe("contracts test", function () {
     );
     await tx.wait();
 
+    var tx = await lendingContract.borrow(usdtContract.address,toBigNum("400", 6));
+    await tx.wait();
+
     var tx = await lendingContract.repay(
       wethContract.address,
       toBigNum("0.1", 18),
@@ -108,13 +110,23 @@ describe("contracts test", function () {
     );
     await tx.wait();
 
-    
-    var tx = await lendingContract.connect(addr1).liquidate(owner.address, {
-      value: toBigNum("0.1", 18),
-    });
-
     var userinfo = await lendingContract.getUserInfo(owner.address);
     console.log("user info ", userinfo);
+
+    var confirmTx = await usdtContract.approve(
+      lendingContract.address,
+      userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
+    );
+    await confirmTx.wait();
+    
+    
+    var tx = await lendingContract.liquidate(owner.address, {
+      value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
+    });
+
+    
+    // var userinfo = await lendingContract.getPoolInfo(wethContract.address);
+    // console.log("user info ", userinfo);
 
     // await tx.wait();
     // var currentMarket = await lendingContract.getMarketInfo();
