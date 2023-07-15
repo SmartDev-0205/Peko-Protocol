@@ -1,0 +1,10 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "Context",
+  "sourceName": "contracts/Lending.sol",
+  "abi": [],
+  "bytecode": "0x6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358221220b894e761543c8ea84118e025a9d27e150c6146ad0afcda2bfc61a1ef058daa6564736f6c63430008040033",
+  "deployedBytecode": "0x6080604052600080fdfea2646970667358221220b894e761543c8ea84118e025a9d27e150c6146ad0afcda2bfc61a1ef058daa6564736f6c63430008040033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

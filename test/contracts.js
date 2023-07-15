@@ -39,7 +39,8 @@ describe("deploy contracts", function () {
     lendingContract = await LendingContract.deploy(
       pekoContract.address,
       wethContract.address,
-      usdtContract.address
+      usdtContract.address,
+      "0x0B3470B916cF46172940147B81941FD7B4ea2935"
     );
   });
 });
@@ -58,50 +59,45 @@ describe("contracts test", function () {
   });
 
   it("get userinfo", async () => {
+    // 1000$ deposit
     var confirmTx = await usdtContract.approve(
       lendingContract.address,
-      toBigNum("1000", 18)
+      toBigNum("1000", 6)
     );
     await confirmTx.wait();
 
     var tx = await lendingContract.deposit(
       usdtContract.address,
-      toBigNum("1000", 18)
+      toBigNum("1000", 6)
     );
     await tx.wait();
+
+    // eth deposit from add1
     var tx = await lendingContract
       .connect(addr1)
       .deposit(wethContract.address, toBigNum("2", 18), {
         value: toBigNum("2", 18),
       });
     await tx.wait();
-    var userinfo = await lendingContract.getUserInfo();
-    console.log("user info ", userinfo);
-    var col = await lendingContract.calcCollater();
-    console.log("colagrattor ", col);
 
-    var userlist = await lendingContract.listUserInfo();
-    console.log("colagrattor ", userlist);
-    var interest = await lendingContract.calcuateInterest(owner.address);
-    console.log("interest ", interest);
+    // get userinfo from ownder
+    // for(let i = 0;i <10000000000;i++){}
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("delay user info ", userinfo);
+    // var addr1userinfo = await lendingContract.(addr1.address);
+    // console.log("delay addr1user info ", addr1userinfo);
 
-    var add1interest = await lendingContract
-      .connect(addr1)
-      .calcuateInterest(addr1.address);
-    console.log("add1interest ", add1interest);
-
-    var add1interest = await lendingContract.calcuateInterest(addr1.address);
-    console.log("add1interest from owner", add1interest);
-
+    // list users
+    // var userlist = await lendingContract.listUserInfo();
     // var tx = await lendingContract.withdraw(
     //   usdtContract.address,
-    //   toBigNum("1000", 18)
+    //   toBigNum("1000", 6)
     // );
     // await tx.wait();
 
     var tx = await lendingContract.borrow(
       wethContract.address,
-      toBigNum("0.2", 18)
+      toBigNum("0.4", 18)
     );
     await tx.wait();
 
@@ -112,17 +108,17 @@ describe("contracts test", function () {
     );
     await tx.wait();
 
-    var tx = await lendingContract
-      .connect(addr1)
-      .borrow(usdtContract.address, toBigNum("400", 18));
-    await tx.wait();
-
+    
     var tx = await lendingContract.connect(addr1).liquidate(owner.address, {
       value: toBigNum("0.1", 18),
     });
-    await tx.wait();
-    var currentMarket = await lendingContract.getMarketInfo();
-    console.log("Current market price", currentMarket);
+
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("user info ", userinfo);
+
+    // await tx.wait();
+    // var currentMarket = await lendingContract.getMarketInfo();
+    // console.log("Current market price", currentMarket);
   });
 
   // deposit eth and lend usdt
