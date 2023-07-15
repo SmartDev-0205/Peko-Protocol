@@ -124,6 +124,13 @@ describe("contracts test", function () {
       value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
     });
 
+    var listpools = await lendingContract.listPools();
+    console.log("listPools ", listpools);
+
+    var liquidationThreshhold = await lendingContract.getLiquidationThreshhold();
+    console.log("getLiquidationThreshhold ", liquidationThreshhold);
+
+
     
     // var userinfo = await lendingContract.getPoolInfo(wethContract.address);
     // console.log("user info ", userinfo);

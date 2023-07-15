@@ -407,6 +407,10 @@ contract Lending is Claimable {
         liquidationThreshhold = limit;
     }
 
+    function getLiquidationThreshhold() public view returns(uint256){
+        return liquidationThreshhold;
+    }
+
     function setPoolAddress(address _poolAddress) public {
         poolAddress = _poolAddress;
     }
@@ -823,11 +827,26 @@ contract Lending is Claimable {
         );
     }
 
-    function getPoolInfo(address _poolAddress) public view returns (PoolInfo memory poolInfo) {
+    function getPoolInfo(address _poolAddress) public view returns (PoolInfo memory) {
         PoolInfo memory currentPool = poolInfos[_poolAddress];
         currentPool.depositApy =  currentPool.depositApy.div(3);
         currentPool.borrowApy =  currentPool.borrowApy.div(3);
         return currentPool;
+    }
+
+    function listPools() public view returns (PoolInfo[] memory) {
+        PoolInfo memory ethPool = poolInfos[ethAddress];
+        ethPool.depositApy =  ethPool.depositApy.div(3);
+        ethPool.borrowApy =  ethPool.borrowApy.div(3);
+
+        PoolInfo memory usdtPool = poolInfos[usdtAddress];
+        usdtPool.depositApy =  usdtPool.depositApy.div(3);
+        usdtPool.borrowApy =  usdtPool.borrowApy.div(3);
+
+        PoolInfo[] memory poolList = new PoolInfo[](2);
+        poolList[0] = ethPool;
+        poolList[1] = usdtPool;
+        return poolList;
     }
 
     receive() external payable {}
