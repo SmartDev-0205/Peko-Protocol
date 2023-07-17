@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.0;
+
 // import "hardhat/console.sol";
 
 library SafeMath {
@@ -373,6 +374,15 @@ contract Lending is Claimable {
         uint256 borrowAmount;
     }
 
+    struct APYInfo {
+        uint256 r0;
+        uint256 uOption;
+        uint256 slope1;
+        uint256 slope2;
+    }
+
+    APYInfo supplyAPY;
+    APYInfo borrowAPY;
     mapping(address => PoolInfo) poolInfos;
     uint256 maxUserIndex;
     mapping(uint256 => UserInfo) userInfos;
@@ -382,9 +392,11 @@ contract Lending is Claimable {
     address ethAddress;
     address usdtAddress;
     address poolAddress;
-    uint liquidationThreshhold = 30;
+    // liquidate limit percent , normally it is 90% but for the testing I set 3%
+    uint liquidationThreshhold = 3;
     // I am using this decimal when calcuate reward
-    uint decimal = 1000000000;
+    uint256 decimal = 100000000000000;
+    uint secondApy = 317;
 
     constructor(
         address _rewardAddress,
@@ -396,22 +408,25 @@ contract Lending is Claimable {
         ethAddress = _ethAdddress;
         usdtAddress = _usdtAddress;
         poolAddress = _poolAddress;
-        // 10 *decimal/(31,536,000 *100) = 30 so 10% = 30
-        addPool(ethAddress, 80, 5, 10, 0, 0);
+        // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
+        addPool(ethAddress, 80, 50, 100, 0, 0);
         // 10 *decimal/(31,536,000 *100)
-        addPool(usdtAddress, 80, 5, 10, 0, 0);
+        addPool(usdtAddress, 80, 50, 100, 0, 0);
+
+        setBorrowApy(100, 70, 500, 2600);
+        setSupplyApy(50, 70, 300, 2000);
     }
 
     // Liquidate max percent
-    function setLiquidationThreshhold(uint limit) public {
+    function setLiquidationThreshhold(uint limit) public onlyOwner {
         liquidationThreshhold = limit;
     }
 
-    function getLiquidationThreshhold() public view returns(uint256){
+    function getLiquidationThreshhold() public view returns (uint256) {
         return liquidationThreshhold;
     }
 
-    function setPoolAddress(address _poolAddress) public {
+    function setPoolAddress(address _poolAddress) public onlyOwner {
         poolAddress = _poolAddress;
     }
 
@@ -425,9 +440,9 @@ contract Lending is Claimable {
     ) private {
         PoolInfo storage newPoolInfo = poolInfos[_tokenAddress];
         newPoolInfo.LTV = _LTV;
-        // 10 *decimal/(31,536,000 *100) = 30 so 10% = 30
-        newPoolInfo.depositApy = _depositApy * 3;
-        newPoolInfo.borrowApy = _borrowApy * 3;
+        // 10 *decimal/(31,536,000 *100) = 3170 so 1%=317
+        newPoolInfo.depositApy = _depositApy * secondApy;
+        newPoolInfo.borrowApy = _borrowApy * secondApy;
         newPoolInfo.totalAmount = _totalAmount;
         newPoolInfo.borrowAmount = _borrowAmount;
     }
@@ -439,8 +454,8 @@ contract Lending is Claimable {
     ) public view returns (uint256) {
         if (_tokenAddress == usdtAddress) return _amount;
         else {
-            // uint256 price = getEthValue(poolAddress,ethAddress,usdtAddress);
-            uint256 price = 1000_000000000000000000;
+            uint256 price = getEthValue(poolAddress, ethAddress, usdtAddress);
+            // uint256 price = 100000000_000000000000000000;
             return (price * _amount).div(10 ** 30);
             // return getEthValue(poolAddress,ethAddress,usdtAddress);
         }
@@ -461,53 +476,136 @@ contract Lending is Claimable {
         return ethPrice_;
     }
 
+    function setSupplyApy(
+        uint256 _r0,
+        uint256 _uOption,
+        uint256 _rSlope1,
+        uint256 _rSlope2
+    ) public onlyOwner {
+        supplyAPY.r0 = _r0;
+        supplyAPY.uOption = _uOption;
+        supplyAPY.slope1 = _rSlope1;
+        supplyAPY.slope2 = _rSlope2;
+    }
+
+    function setBorrowApy(
+        uint256 _r0,
+        uint256 _uOption,
+        uint256 _rSlope1,
+        uint256 _rSlope2
+    ) public onlyOwner {
+        borrowAPY.r0 = _r0;
+        borrowAPY.uOption = _uOption;
+        borrowAPY.slope1 = _rSlope1;
+        borrowAPY.slope2 = _rSlope2;
+    }
+
+    function calculateAPY(
+        address _tokenAddress
+    ) private view returns (uint256, uint256) {
+        uint256 totalAmount;
+        uint256 borrowAmount;
+        PoolInfo memory poolInfo = getPoolInfo(_tokenAddress);
+        totalAmount = poolInfo.totalAmount;
+        borrowAmount = poolInfo.borrowAmount;
+        uint256 rt = 0;
+        uint256 st = 0;
+        if (totalAmount > 0) {
+            uint256 Ut = (borrowAmount * 100).div(totalAmount);
+
+            if (borrowAPY.uOption > Ut) {
+                rt =
+                    borrowAPY.r0 +
+                    (Ut * borrowAPY.slope1).div(borrowAPY.uOption);
+            } else {
+                rt =
+                    borrowAPY.r0 +
+                    borrowAPY.slope1 +
+                    ((Ut - borrowAPY.uOption) * borrowAPY.slope2).div(
+                        100 - borrowAPY.uOption
+                    );
+            }
+
+            if (supplyAPY.uOption > Ut) {
+                st =
+                    supplyAPY.r0 +
+                    (Ut * supplyAPY.slope1).div(supplyAPY.uOption);
+            } else {
+                st =
+                    supplyAPY.r0 +
+                    supplyAPY.slope1 +
+                    ((Ut - supplyAPY.uOption) * supplyAPY.slope2).div(
+                        100 - supplyAPY.uOption
+                    );
+            }
+            st = st * secondApy;
+            rt = rt * secondApy;
+        } else {
+            st = supplyAPY.r0 * secondApy;
+            rt = borrowAPY.r0 * secondApy;
+        }
+        return (st, rt);
+    }
+
     // calcuate interest and reward for user.
     function calcuateUser(address _account) private {
+        // if  U < Uₒₚₜᵢₘₐₗ :     Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
+        // if U ≥  Uₒₚₜᵢₘₐₗ :    Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
+        // R₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Rₛₗₒₚₑ₁ = 5% Rₛₗₒₚₑ₂ = 26%
+        // S₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Sₛₗₒₚₑ₁ = 4% Sₛₗₒₚₑ₂ = 20%
+
         require(userInfoIndex[_account] > 0, "User should deposit before");
         UserInfo storage currentUserInfo = userInfos[userInfoIndex[_account]];
-        uint256 lastTimestamp = currentUserInfo.lastInterest;
-        uint256 timeDelta = block.timestamp - lastTimestamp;
-
-
+        UserInfoForDisplay memory userInfoDisplay = fetchUserInfo(
+            userInfoIndex[_account]
+        );
         // calculate eth
-        currentUserInfo.pekoRewardAmount += calcTokenPrice(ethAddress,(currentUserInfo.tokenDepositAmount[ethAddress] * poolInfos[ethAddress].depositApy * timeDelta) / decimal);
-        currentUserInfo.tokenRewardAmount[ethAddress] +=
-            (currentUserInfo.tokenDepositAmount[ethAddress] *
-                poolInfos[ethAddress].depositApy *
-                timeDelta) /
-            decimal;
-        currentUserInfo.tokenInterestAmount[ethAddress] +=
-            (currentUserInfo.tokenBorrowAmount[ethAddress] *
-                poolInfos[ethAddress].borrowApy *
-                timeDelta) /
-            decimal;
+        currentUserInfo.pekoRewardAmount = userInfoDisplay.pekoRewardAmount;
+        currentUserInfo.tokenRewardAmount[ethAddress] = userInfoDisplay
+            .ethRewardAmount;
+        currentUserInfo.tokenInterestAmount[ethAddress] = userInfoDisplay
+            .ethInterestAmount;
 
         // calculate usdt
-        currentUserInfo.pekoRewardAmount += calcTokenPrice(usdtAddress,(currentUserInfo.tokenDepositAmount[usdtAddress] * poolInfos[usdtAddress].depositApy * timeDelta) / decimal);
-        currentUserInfo.tokenRewardAmount[usdtAddress] +=
-            (currentUserInfo.tokenDepositAmount[usdtAddress] *
-                poolInfos[usdtAddress].depositApy *
-                timeDelta) /
-            decimal;
-        currentUserInfo.tokenInterestAmount[usdtAddress] +=
-            (currentUserInfo.tokenBorrowAmount[usdtAddress] *
-                poolInfos[usdtAddress].borrowApy *
-                timeDelta) /
-            decimal;
-
+        currentUserInfo.tokenRewardAmount[usdtAddress] = userInfoDisplay
+            .usdtRewardAmount;
+        currentUserInfo.tokenInterestAmount[usdtAddress] = userInfoDisplay
+            .usdtInterestAmount;
         currentUserInfo.lastInterest = block.timestamp;
+
+
+        // Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
+        // Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
+        (
+            poolInfos[ethAddress].depositApy,
+            poolInfos[ethAddress].borrowApy
+        ) = calculateAPY(ethAddress);
+        (
+            poolInfos[usdtAddress].depositApy,
+            poolInfos[usdtAddress].borrowApy
+        ) = calculateAPY(usdtAddress);
     }
 
     function clearUser(address _account) private {
         require(userInfoIndex[_account] > 0, "User should deposit before");
         UserInfo storage currentUserInfo = userInfos[userInfoIndex[_account]];
         // calculate eth
+        poolInfos[ethAddress].totalAmount -= currentUserInfo.tokenDepositAmount[
+            ethAddress
+        ];
+        poolInfos[ethAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
+            ethAddress
+        ];
         currentUserInfo.tokenDepositAmount[ethAddress] = 0;
         currentUserInfo.tokenBorrowAmount[ethAddress] = 0;
         currentUserInfo.tokenRewardAmount[ethAddress] = 0;
         currentUserInfo.tokenInterestAmount[ethAddress] = 0;
 
         // calculate eth
+        poolInfos[usdtAddress].totalAmount -= currentUserInfo
+            .tokenDepositAmount[usdtAddress];
+        poolInfos[usdtAddress].borrowAmount -= currentUserInfo
+            .tokenBorrowAmount[usdtAddress];
         currentUserInfo.tokenDepositAmount[usdtAddress] = 0;
         currentUserInfo.tokenBorrowAmount[usdtAddress] = 0;
         currentUserInfo.tokenRewardAmount[usdtAddress] = 0;
@@ -545,6 +643,7 @@ contract Lending is Claimable {
         } else {
             poolInfos[ethAddress].totalAmount += _amount;
         }
+        calcuateUser(msg.sender);
     }
 
     // calc collateral in usd
@@ -613,6 +712,7 @@ contract Lending is Claimable {
             IERC20(usdtAddress).transfer(msg.sender, _amount);
             poolInfos[usdtAddress].borrowAmount += _amount;
         }
+        calcuateUser(msg.sender);
     }
 
     function repay(address _tokenAddress, uint256 _amount) public payable {
@@ -621,12 +721,25 @@ contract Lending is Claimable {
         uint256 userIndex = userInfoIndex[msg.sender];
         require(userIndex > 0, "User index should be bigger than 0.");
         UserInfo storage currentUserInfo = userInfos[userIndex];
+        uint256 repayAmount = 0;
 
-        require(
-            _amount > currentUserInfo.tokenInterestAmount[_tokenAddress],
-            "Repay need to be bigger than debt"
-        );
-        currentUserInfo.tokenBorrowAmount[_tokenAddress] -= _amount;
+        if (currentUserInfo.tokenInterestAmount[_tokenAddress] > _amount) {
+            currentUserInfo.tokenInterestAmount[_tokenAddress] -= _amount;
+        } else {
+            if (
+                _amount >
+                currentUserInfo.tokenInterestAmount[_tokenAddress] +
+                    currentUserInfo.tokenBorrowAmount[_tokenAddress]
+            ) {
+                repayAmount = currentUserInfo.tokenBorrowAmount[_tokenAddress];
+            } else {
+                repayAmount = (_amount -
+                    currentUserInfo.tokenInterestAmount[_tokenAddress]);
+            }
+            currentUserInfo.tokenBorrowAmount[_tokenAddress] -= repayAmount;
+            currentUserInfo.tokenInterestAmount[_tokenAddress] = 0;
+        }
+
         if (_tokenAddress == usdtAddress) {
             require(
                 IERC20(usdtAddress).transferFrom(
@@ -636,10 +749,10 @@ contract Lending is Claimable {
                 ),
                 "Repay failed"
             );
-            poolInfos[usdtAddress].borrowAmount -= _amount;
+            poolInfos[usdtAddress].borrowAmount -= repayAmount;
         } else {
             require(msg.value >= _amount, "Please pay more.");
-            poolInfos[ethAddress].borrowAmount -= _amount;
+            poolInfos[ethAddress].borrowAmount -= repayAmount;
         }
         calcuateUser(msg.sender);
     }
@@ -658,22 +771,24 @@ contract Lending is Claimable {
                 accountDebt + calcTokenPrice(_tokenAddress, _amount),
             "Withdraw failed.You donot have any collateral."
         );
-
-        currentUserInfo.tokenRewardAmount[_tokenAddress] = 0;
-        currentUserInfo.tokenDepositAmount[_tokenAddress] -= _amount;
+        if (currentUserInfo.tokenRewardAmount[_tokenAddress] > _amount) {
+            currentUserInfo.tokenRewardAmount[_tokenAddress] -= _amount;
+        } else {
+            uint256 withdrawAmount = (_amount -
+                currentUserInfo.tokenRewardAmount[_tokenAddress]);
+            currentUserInfo.tokenDepositAmount[_tokenAddress] -= withdrawAmount;
+            currentUserInfo.tokenRewardAmount[_tokenAddress] = 0;
+            poolInfos[_tokenAddress].totalAmount -= withdrawAmount;
+        }
 
         if (_tokenAddress == ethAddress) {
-            (bool sent, ) = payable(msg.sender).call{
-                value: currentUserInfo.tokenRewardAmount[_tokenAddress] +
-                    _amount
-            }("");
+            (bool sent, ) = payable(msg.sender).call{value: _amount}("");
             require(sent, "failed to send eth interest.");
         } else {
-            IERC20(usdtAddress).transfer(
-                msg.sender,
-                currentUserInfo.tokenRewardAmount[_tokenAddress] + _amount
-            );
+            IERC20(usdtAddress).transfer(msg.sender, _amount);
         }
+
+        calcuateUser(msg.sender);
     }
 
     function liquidate(address _account) public payable {
@@ -683,21 +798,31 @@ contract Lending is Claimable {
 
         uint256 accountCollateral = collateral(_account);
         uint256 accountDebt = debt(_account);
-        uint256 riskFact = (accountDebt* 100 * 100).div(accountCollateral * 90) ;
-        require(
-            riskFact > liquidationThreshhold,
-            "This is not enabled liquidation"
+        uint256 riskFact = (accountDebt * 100 * 100).div(
+            accountCollateral * liquidationThreshhold
         );
+        require(riskFact > 100, "This is not enabled liquidation");
 
         // if depost eth so liquidator need to send token
-        
-        uint256 ethSupplyAmount = currentUserInfo.tokenDepositAmount[ethAddress] + currentUserInfo.tokenRewardAmount[ethAddress];
-        uint256 usdtSupplyAmount = currentUserInfo.tokenDepositAmount[usdtAddress] + currentUserInfo.tokenRewardAmount[usdtAddress];
 
-        uint256 ethBorrowAmount = currentUserInfo.tokenBorrowAmount[ethAddress] + currentUserInfo.tokenInterestAmount[ethAddress];
-        uint256 usdtBorrowAmount = currentUserInfo.tokenBorrowAmount[usdtAddress] + currentUserInfo.tokenInterestAmount[usdtAddress];
+        uint256 ethSupplyAmount = currentUserInfo.tokenDepositAmount[
+            ethAddress
+        ] + currentUserInfo.tokenRewardAmount[ethAddress];
+        uint256 usdtSupplyAmount = currentUserInfo.tokenDepositAmount[
+            usdtAddress
+        ] + currentUserInfo.tokenRewardAmount[usdtAddress];
 
-        require (msg.value > ethBorrowAmount.div(10000) * 9999,"Not enough eth");
+        uint256 ethBorrowAmount = currentUserInfo.tokenBorrowAmount[
+            ethAddress
+        ] + currentUserInfo.tokenInterestAmount[ethAddress];
+        uint256 usdtBorrowAmount = currentUserInfo.tokenBorrowAmount[
+            usdtAddress
+        ] + currentUserInfo.tokenInterestAmount[usdtAddress];
+
+        require(
+            msg.value > ethBorrowAmount.div(10000) * 9999,
+            "Not enough eth"
+        );
         require(
             IERC20(usdtAddress).transferFrom(
                 msg.sender,
@@ -706,25 +831,19 @@ contract Lending is Claimable {
             ),
             "deposit failed"
         );
-        
-        (bool sent, ) = payable(msg.sender).call{
-            value: ethSupplyAmount
-        }("");
+
+        (bool sent, ) = payable(msg.sender).call{value: ethSupplyAmount}("");
         require(sent, "failed to send eth.");
-        
-        IERC20(usdtAddress).transfer(
-            msg.sender,
-            usdtSupplyAmount
-        );
-        
+
+        IERC20(usdtAddress).transfer(msg.sender, usdtSupplyAmount);
+
         IERC20(rewardAddress).transfer(
             msg.sender,
             currentUserInfo.pekoRewardAmount
         );
-
         clearUser(_account);
+        calcuateUser(msg.sender);
     }
-
 
     function claimPeko() public {
         uint256 userIndex = userInfoIndex[msg.sender];
@@ -743,36 +862,87 @@ contract Lending is Claimable {
     ) private view returns (UserInfoForDisplay memory) {
         if (_userindex > 0) {
             UserInfo storage currentUserInfo = userInfos[_userindex];
+
+            uint256 lastTimestamp = currentUserInfo.lastInterest;
+            uint256 timeDelta = block.timestamp - lastTimestamp;
+
+            // calculate eth
+            uint256 pekoRewardAmount = currentUserInfo.pekoRewardAmount +
+                calcTokenPrice(
+                    ethAddress,
+                    (currentUserInfo.tokenDepositAmount[ethAddress] *
+                        poolInfos[ethAddress].depositApy *
+                        timeDelta) / decimal
+                );
+            uint256 ethRewardAmount = currentUserInfo.tokenRewardAmount[
+                ethAddress
+            ] +
+                (currentUserInfo.tokenDepositAmount[ethAddress] *
+                    poolInfos[ethAddress].depositApy *
+                    timeDelta) /
+                decimal;
+            uint256 ethInterestAmount = currentUserInfo.tokenInterestAmount[
+                ethAddress
+            ] +
+                (currentUserInfo.tokenBorrowAmount[ethAddress] *
+                    poolInfos[ethAddress].borrowApy *
+                    timeDelta) /
+                decimal;
+
+            // calculate usdt
+            pekoRewardAmount +=
+                currentUserInfo.pekoRewardAmount +
+                calcTokenPrice(
+                    usdtAddress,
+                    (currentUserInfo.tokenDepositAmount[usdtAddress] *
+                        poolInfos[usdtAddress].depositApy *
+                        timeDelta) / decimal
+                );
+            uint256 usdtRewardAmount = currentUserInfo.tokenRewardAmount[
+                usdtAddress
+            ] +
+                (currentUserInfo.tokenDepositAmount[usdtAddress] *
+                    poolInfos[usdtAddress].depositApy *
+                    timeDelta) /
+                decimal;
+            uint256 usdtInterestAmount = currentUserInfo.tokenInterestAmount[
+                usdtAddress
+            ] +
+                (currentUserInfo.tokenBorrowAmount[usdtAddress] *
+                    poolInfos[usdtAddress].borrowApy *
+                    timeDelta) /
+                decimal;
+
             UserInfoForDisplay
                 memory currentUserInfoForDisplay = UserInfoForDisplay(
                     currentUserInfo.tokenDepositAmount[ethAddress],
                     currentUserInfo.tokenDepositAmount[usdtAddress],
                     currentUserInfo.tokenBorrowAmount[ethAddress],
                     currentUserInfo.tokenBorrowAmount[usdtAddress],
-                    currentUserInfo.tokenInterestAmount[ethAddress],
-                    currentUserInfo.tokenInterestAmount[usdtAddress],
-                    currentUserInfo.tokenRewardAmount[ethAddress],
-                    currentUserInfo.tokenRewardAmount[usdtAddress],
-                    currentUserInfo.pekoRewardAmount,
+                    ethInterestAmount,
+                    usdtInterestAmount,
+                    ethRewardAmount,
+                    usdtRewardAmount,
+                    pekoRewardAmount,
                     calcTokenPrice(
                         ethAddress,
                         currentUserInfo.tokenDepositAmount[ethAddress] +
-                            currentUserInfo.tokenRewardAmount[ethAddress]
+                            ethRewardAmount
                     ),
                     calcTokenPrice(
                         usdtAddress,
                         currentUserInfo.tokenDepositAmount[usdtAddress] +
-                            currentUserInfo.tokenRewardAmount[usdtAddress]
+                            usdtRewardAmount
                     ),
                     calcTokenPrice(
                         ethAddress,
                         currentUserInfo.tokenBorrowAmount[ethAddress] +
-                            currentUserInfo.tokenInterestAmount[ethAddress]
+                            ethInterestAmount
                     ),
                     calcTokenPrice(
                         usdtAddress,
                         currentUserInfo.tokenBorrowAmount[usdtAddress] +
-                            currentUserInfo.tokenInterestAmount[usdtAddress]
+                            usdtInterestAmount
                     ),
                     currentUserInfo.accountAddress
                 );
@@ -827,21 +997,23 @@ contract Lending is Claimable {
         );
     }
 
-    function getPoolInfo(address _poolAddress) public view returns (PoolInfo memory) {
+    function getPoolInfo(
+        address _poolAddress
+    ) public view returns (PoolInfo memory) {
         PoolInfo memory currentPool = poolInfos[_poolAddress];
-        currentPool.depositApy =  currentPool.depositApy.div(3);
-        currentPool.borrowApy =  currentPool.borrowApy.div(3);
+        currentPool.depositApy = currentPool.depositApy.div(secondApy);
+        currentPool.borrowApy = currentPool.borrowApy.div(secondApy);
         return currentPool;
     }
 
     function listPools() public view returns (PoolInfo[] memory) {
         PoolInfo memory ethPool = poolInfos[ethAddress];
-        ethPool.depositApy =  ethPool.depositApy.div(3);
-        ethPool.borrowApy =  ethPool.borrowApy.div(3);
+        ethPool.depositApy = ethPool.depositApy.div(secondApy);
+        ethPool.borrowApy = ethPool.borrowApy.div(secondApy);
 
         PoolInfo memory usdtPool = poolInfos[usdtAddress];
-        usdtPool.depositApy =  usdtPool.depositApy.div(3);
-        usdtPool.borrowApy =  usdtPool.borrowApy.div(3);
+        usdtPool.depositApy = usdtPool.depositApy.div(secondApy);
+        usdtPool.borrowApy = usdtPool.borrowApy.div(secondApy);
 
         PoolInfo[] memory poolList = new PoolInfo[](2);
         poolList[0] = ethPool;

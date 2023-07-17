@@ -63,6 +63,10 @@ module.exports = {
 		rinkeby: {
 			url: "https://rinkeby.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
 			accounts: [process.env.PRIVATEKEY]
+		},
+		linear: {
+			url: "https://rpc.goerli.linea.build",
+			accounts: [process.env.PRIVATEKEY]
 		}
 
 	},
@@ -107,7 +111,7 @@ module.exports = {
 				}
 			},
 			{
-				version: "0.8.4",
+				version: "0.8.18",
 				settings: {
 					optimizer: {
 						enabled: true,

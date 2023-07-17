@@ -19,7 +19,7 @@ async function main() {
 
   fs.writeFileSync(
     `./build/${network.chainId}.json`,
-    JSON.stringify(contractObject, undefined, 4)
+    JSON.stringify(ledingContract, undefined, 4)
   );
 }
 

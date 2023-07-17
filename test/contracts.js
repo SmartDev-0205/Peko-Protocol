@@ -2,15 +2,11 @@ const { expect } = require("chai");
 const fs = require("fs");
 const { ethers } = require("hardhat");
 const { delay, fromBigNum, toBigNum } = require("./utils.js");
+const { mine } = require("@nomicfoundation/hardhat-network-helpers");
 
 var owner;
 var network;
 var provider;
-
-// var tokenContract;
-// var presaleContract;
-
-// var userWallet;
 
 describe("deploy contracts", function () {
   it("Create account", async function () {
@@ -47,9 +43,15 @@ describe("deploy contracts", function () {
 
 describe("contracts test", function () {
   it("send token to Contract", async () => {
-    await pekoContract.transfer(lendingContract.address, toBigNum("1000", 18));
+    await pekoContract.transfer(
+      lendingContract.address,
+      toBigNum("100000", 18)
+    );
     let contractBalance = await pekoContract.balanceOf(lendingContract.address);
-    await usdtContract.transfer(lendingContract.address, toBigNum("1000", 18));
+    await usdtContract.transfer(
+      lendingContract.address,
+      toBigNum("100000", 18)
+    );
     contractBalance = await usdtContract.balanceOf(lendingContract.address);
     var tx = await owner.sendTransaction({
       to: lendingContract.address,
@@ -58,26 +60,143 @@ describe("contracts test", function () {
     await tx.wait();
   });
 
-  it("get userinfo", async () => {
+  it("Contract test", async () => {
+
+    // init platform
+    // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
+    // var tx = lendingContract.addPool(ethAddress, 80, 50, 100, 0, 0);
+    // await tx.wait();
+    // // 10 *decimal/(31,536,000 *100)
+    // var tx = lendingContract.addPool(usdtAddress, 80, 50, 100, 0, 0);
+    // await tx.wait();
+    // var tx = lendingContract.setBorrowApy(100, 70, 500, 2600);
+    // await tx.wait();
+    // var tx = lendingContract.setSupplyApy(50, 70, 300, 2000);
+    // await tx.wait();
+
+    
+
     // 1000$ deposit
     var confirmTx = await usdtContract.approve(
       lendingContract.address,
-      toBigNum("1000", 6)
+      toBigNum("100000000", 6)
     );
     await confirmTx.wait();
 
     var tx = await lendingContract.deposit(
       usdtContract.address,
-      toBigNum("1000", 6)
+      toBigNum("100000000", 6)
+    );
+    await tx.wait();
+    var tx = await lendingContract.deposit(
+      wethContract.address,
+      toBigNum("1", 18),
+      {
+        value: toBigNum("1", 18),
+      }
+    );
+    await tx.wait();
+    await mine(31_536_000);
+
+    var tx = await lendingContract.withdraw(
+      usdtContract.address,
+      toBigNum("10000000", 6)
     );
     await tx.wait();
 
-    // eth deposit from add1
-    var tx = await lendingContract
-      .deposit(wethContract.address, toBigNum("0.01", 18), {
-        value: toBigNum("0.01", 18),
-      });
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("delay user info ", userinfo);
+
+    var tx = await lendingContract.borrow(
+      wethContract.address,
+      toBigNum("0.4", 18)
+    );
     await tx.wait();
+
+    // var tx = await lendingContract.borrow(
+    //   usdtContract.address,
+    //   toBigNum("60000000", 6)
+    // );
+    // await tx.wait();
+
+    // var tx = await lendingContract.borrow(
+    //   usdtContract.address,
+    //   toBigNum("200", 6)
+    // );
+    // await tx.wait();
+
+    // await mine(10000000);
+
+    // var tx = await lendingContract.repay(
+    //   wethContract.address,
+    //   toBigNum("0.1", 18),
+    //   { value: toBigNum("0.1", 18) }
+    // );
+    // await tx.wait();
+
+    // var confirmTx = await usdtContract.approve(
+    //   lendingContract.address,
+    //   toBigNum("10000000", 18)
+    // );
+    // await confirmTx.wait();
+    // var tx = await lendingContract.repay(
+    //   usdtContract.address,
+    //   toBigNum("10000000", 18)
+    // );
+    // await tx.wait();
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("user info ", userinfo);
+
+    // var confirmTx = await usdtContract.approve(
+    //   lendingContract.address,
+    //   userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
+    // );
+    // await confirmTx.wait();
+
+    // var tx = await lendingContract.liquidate(owner.address, {
+    //   value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
+    // });
+
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("user info ", userinfo);
+
+    var poolinfo = await lendingContract.getPoolInfo(usdtContract.address);
+    console.log("pool info ", poolinfo);
+
+    var listpools = await lendingContract.listPools();
+    console.log("listPools ", listpools);
+
+    // // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // // console.log("after user info ", userinfo);
+
+    // var ethPool = await lendingContract.getPoolInfo(wethContract.address);
+    // console.log("pool info ", ethPool);
+
+    // var tx = await lendingContract.withdraw(
+    //   usdtContract.address,
+    //   toBigNum("200", 6)
+    // );
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("user info ", userinfo);
+
+    // var confirmTx = await usdtContract.approve(
+    //   lendingContract.address,
+    //   userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
+    // );
+    // await confirmTx.wait();
+
+    // var tx = await lendingContract.liquidate(owner.address, {
+    //   value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
+    // });
+
+    // var marketInfo = await lendingContract.getMarketInfo();
+    // console.log("market info ", marketInfo);
+
+    // var userinfo = await lendingContract.getPoolInfo(usdtContract.address);
+    // console.log("pool info ", userinfo);
 
     // get userinfo from ownder
     // for(let i = 0;i <10000000000;i++){}
@@ -94,44 +213,41 @@ describe("contracts test", function () {
     // );
     // await tx.wait();
 
-    var tx = await lendingContract.borrow(
-      wethContract.address,
-      toBigNum("0.4", 18)
-    );
-    await tx.wait();
+    // var tx = await lendingContract.borrow(
+    //   wethContract.address,
+    //   toBigNum("0.4", 18)
+    // );
+    // await tx.wait();
 
-    var tx = await lendingContract.borrow(usdtContract.address,toBigNum("400", 6));
-    await tx.wait();
+    // var tx = await lendingContract.borrow(usdtContract.address,toBigNum("400", 6));
+    // await tx.wait();
 
-    var tx = await lendingContract.repay(
-      wethContract.address,
-      toBigNum("0.1", 18),
-      { value: toBigNum("0.1", 18) }
-    );
-    await tx.wait();
+    // var tx = await lendingContract.repay(
+    //   wethContract.address,
+    //   toBigNum("0.1", 18),
+    //   { value: toBigNum("0.1", 18) }
+    // );
+    // await tx.wait();
 
-    var userinfo = await lendingContract.getUserInfo(owner.address);
-    console.log("user info ", userinfo);
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("user info ", userinfo);
 
-    var confirmTx = await usdtContract.approve(
-      lendingContract.address,
-      userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
-    );
-    await confirmTx.wait();
-    
-    
-    var tx = await lendingContract.liquidate(owner.address, {
-      value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
-    });
+    // var confirmTx = await usdtContract.approve(
+    //   lendingContract.address,
+    //   userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
+    // );
+    // await confirmTx.wait();
 
-    var listpools = await lendingContract.listPools();
-    console.log("listPools ", listpools);
+    // var tx = await lendingContract.liquidate(owner.address, {
+    //   value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
+    // });
 
-    var liquidationThreshhold = await lendingContract.getLiquidationThreshhold();
-    console.log("getLiquidationThreshhold ", liquidationThreshhold);
+    // var listpools = await lendingContract.listPools();
+    // console.log("listPools ", listpools);
 
+    // var liquidationThreshhold = await lendingContract.getLiquidationThreshhold();
+    // console.log("getLiquidationThreshhold ", liquidationThreshhold);
 
-    
     // var userinfo = await lendingContract.getPoolInfo(wethContract.address);
     // console.log("user info ", userinfo);
 
