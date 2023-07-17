@@ -21,6 +21,16 @@ async function main() {
     `./build/${network.chainId}.json`,
     JSON.stringify(ledingContract, undefined, 4)
   );
+
+  // const LENDINGCONTRACT = await ethers.getContractFactory("Price");
+  // var ledingContract = await LENDINGCONTRACT.deploy();
+  // await ledingContract.deployed();
+  // console.log("Lending contract", ledingContract.address);
+
+  // fs.writeFileSync(
+  //   `./build/${network.chainId}.json`,
+  //   JSON.stringify(ledingContract, undefined, 4)
+  // );
 }
 
 main()

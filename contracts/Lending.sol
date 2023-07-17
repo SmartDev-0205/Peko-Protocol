@@ -336,6 +336,19 @@ contract Claimable is Ownable {
     }
 }
 
+interface Aggregator {
+    function latestRoundData()
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+}
+
 contract Lending is Claimable {
     using SafeMath for uint256;
 
@@ -397,6 +410,7 @@ contract Lending is Claimable {
     // I am using this decimal when calcuate reward
     uint256 decimal = 100000000000000;
     uint secondApy = 317;
+    address aggregatorInterface = 0x245e775A46B1AADacBd48279Cf0731CF186Cf2b2;
 
     constructor(
         address _rewardAddress,
@@ -454,26 +468,18 @@ contract Lending is Claimable {
     ) public view returns (uint256) {
         if (_tokenAddress == usdtAddress) return _amount;
         else {
-            uint256 price = getEthValue(poolAddress, ethAddress, usdtAddress);
+            uint256 price = getEthValue();
             // uint256 price = 100000000_000000000000000000;
             return (price * _amount).div(10 ** 30);
             // return getEthValue(poolAddress,ethAddress,usdtAddress);
         }
     }
 
-    function getEthValue(
-        address _pool,
-        address _weth,
-        address _usdc
-    ) public view returns (uint256) {
-        uint256 wethReserve = IERC20(_weth).balanceOf(_pool);
-        uint256 usdcReserve = IERC20(_usdc).balanceOf(_pool);
-        uint256 usdcDecimals = IERC20(_usdc).decimals();
-        //   uint256 ethPrice_ = usdcReserve.mul(10 ** (36 - usdcDecimals)).div(wethReserve);
-        uint256 ethPrice_ = usdcReserve.mul(10 ** (36 - usdcDecimals)).div(
-            wethReserve
-        );
-        return ethPrice_;
+    function getEthValue() public view returns (uint256) {
+        (, int256 ethPrice, , , ) = Aggregator(aggregatorInterface)
+            .latestRoundData();
+        ethPrice = (ethPrice * (10 ** 10));
+        return uint256(ethPrice);
     }
 
     function setSupplyApy(
@@ -572,7 +578,6 @@ contract Lending is Claimable {
         currentUserInfo.tokenInterestAmount[usdtAddress] = userInfoDisplay
             .usdtInterestAmount;
         currentUserInfo.lastInterest = block.timestamp;
-
 
         // Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
         // Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
