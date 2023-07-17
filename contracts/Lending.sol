@@ -404,7 +404,6 @@ contract Lending is Claimable {
     address rewardAddress;
     address ethAddress;
     address usdtAddress;
-    address poolAddress;
     // liquidate limit percent , normally it is 90% but for the testing I set 3%
     uint liquidationThreshhold = 3;
     // I am using this decimal when calcuate reward
@@ -415,13 +414,11 @@ contract Lending is Claimable {
     constructor(
         address _rewardAddress,
         address _ethAdddress,
-        address _usdtAddress,
-        address _poolAddress
+        address _usdtAddress
     ) {
         rewardAddress = _rewardAddress;
         ethAddress = _ethAdddress;
         usdtAddress = _usdtAddress;
-        poolAddress = _poolAddress;
         // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
         addPool(ethAddress, 80, 50, 100, 0, 0);
         // 10 *decimal/(31,536,000 *100)
