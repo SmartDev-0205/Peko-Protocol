@@ -822,7 +822,7 @@ contract Lending is Claimable {
         ] + currentUserInfo.tokenInterestAmount[usdtAddress];
 
         require(
-            msg.value > ethBorrowAmount.div(10000) * 9999,
+            msg.value >= ethBorrowAmount.div(10000) * 9999,
             "Not enough eth"
         );
         require(
