@@ -6,6 +6,7 @@
     "test:parallel": "mocha --require hardhat/register --recursive --parallel --timeout 10000 --exit",
     "compile": "hardhat compile",
     "deploy": "npx hardhat run --network linear scripts/deploy.js",
+    "deploy_ido": "npx hardhat run --network linear scripts/ido-deploy.js",
     "accounts": "hardhat accounts",
     "balance": "hardhat balance",
     "generate": "hardhat generate",

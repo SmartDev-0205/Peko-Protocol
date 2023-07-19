@@ -36,7 +36,6 @@ describe("deploy contracts", function () {
       pekoContract.address,
       wethContract.address,
       usdtContract.address,
-      "0x0B3470B916cF46172940147B81941FD7B4ea2935"
     );
   });
 });
@@ -74,7 +73,7 @@ describe("contracts test", function () {
     // var tx = lendingContract.setSupplyApy(50, 70, 300, 2000);
     // await tx.wait();
 
-    
+
 
     // 1000$ deposit
     var confirmTx = await usdtContract.approve(
@@ -97,6 +96,7 @@ describe("contracts test", function () {
     );
     await tx.wait();
     await mine(31_536_000);
+
 
     var tx = await lendingContract.withdraw(
       usdtContract.address,

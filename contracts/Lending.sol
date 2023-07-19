@@ -420,12 +420,12 @@ contract Lending is Claimable {
         ethAddress = _ethAdddress;
         usdtAddress = _usdtAddress;
         // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
-        addPool(ethAddress, 80, 50, 100, 0, 0);
+        addPool(ethAddress, 80, 100, 200, 0, 0);
         // 10 *decimal/(31,536,000 *100)
-        addPool(usdtAddress, 80, 50, 100, 0, 0);
+        addPool(usdtAddress, 80, 100, 200, 0, 0);
 
-        setBorrowApy(100, 70, 500, 2600);
-        setSupplyApy(50, 70, 300, 2000);
+        setBorrowApy(200, 70, 2000, 6000);
+        setSupplyApy(100, 70, 1000, 2000);
     }
 
     // Liquidate max percent
@@ -435,10 +435,6 @@ contract Lending is Claimable {
 
     function getLiquidationThreshhold() public view returns (uint256) {
         return liquidationThreshhold;
-    }
-
-    function setPoolAddress(address _poolAddress) public onlyOwner {
-        poolAddress = _poolAddress;
     }
 
     function addPool(
@@ -769,8 +765,10 @@ contract Lending is Claimable {
         uint256 accountCollateral = collateral(msg.sender);
         uint256 accountDebt = debt(msg.sender);
         require(
-            (accountCollateral * poolInfos[_tokenAddress].LTV) / 100 >
-                accountDebt + calcTokenPrice(_tokenAddress, _amount),
+            ((accountCollateral - calcTokenPrice(_tokenAddress, _amount)) *
+                poolInfos[_tokenAddress].LTV) /
+                100 >
+                accountDebt,
             "Withdraw failed.You donot have any collateral."
         );
         if (currentUserInfo.tokenRewardAmount[_tokenAddress] > _amount) {
