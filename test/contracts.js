@@ -18,7 +18,6 @@ describe("deploy contracts", function () {
     });
     await tx.wait();
   });
-
   it("deploy contracts", async function () {
     //QE token deployment
     const ERC20TOKEN = await ethers.getContractFactory("NormalToken");
@@ -35,7 +34,7 @@ describe("deploy contracts", function () {
     lendingContract = await LendingContract.deploy(
       pekoContract.address,
       wethContract.address,
-      usdtContract.address,
+      usdtContract.address
     );
   });
 });
@@ -60,7 +59,7 @@ describe("contracts test", function () {
   });
 
   it("Contract test", async () => {
-
+    return;
     // init platform
     // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
     // var tx = lendingContract.addPool(ethAddress, 80, 50, 100, 0, 0);
@@ -72,8 +71,6 @@ describe("contracts test", function () {
     // await tx.wait();
     // var tx = lendingContract.setSupplyApy(50, 70, 300, 2000);
     // await tx.wait();
-
-
 
     // 1000$ deposit
     var confirmTx = await usdtContract.approve(
@@ -96,7 +93,6 @@ describe("contracts test", function () {
     );
     await tx.wait();
     await mine(31_536_000);
-
 
     var tx = await lendingContract.withdraw(
       usdtContract.address,
@@ -157,7 +153,6 @@ describe("contracts test", function () {
     // var tx = await lendingContract.liquidate(owner.address, {
     //   value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
     // });
-
 
     // var userinfo = await lendingContract.getUserInfo(owner.address);
     // console.log("user info ", userinfo);

@@ -373,7 +373,7 @@ contract IDO is Claimable {
     address usdtAddress;
 
     mapping(address => uint256) public userRewards;
-
+    mapping(address => uint256) public userDeposited;
     constructor(address _rewardAddress, address _usdtAddress) {
         startTime = block.timestamp;
         totalSaled = 0;
@@ -403,8 +403,8 @@ contract IDO is Claimable {
 
     function buyWithUSDT(uint256 usdtAmount) external returns (bool) {
         require(
-            maxUsdtAmount >= usdtAmount.div(baseDecimal) &&
-                usdtAmount.div(baseDecimal) >= minUsdtAmount,
+            maxUsdtAmount >= (userDeposited[_msgSender()]+usdtAmount).div(baseDecimal) &&
+                (userDeposited[_msgSender()]+usdtAmount).div(baseDecimal) >= minUsdtAmount,
             "Amount is allowed 100 - 1000."
         );
         uint256 amount = calcTokenAmount(usdtAmount);
@@ -419,6 +419,7 @@ contract IDO is Claimable {
             "deposit failed"
         );
         userRewards[_msgSender()] += amount;
+        userDeposited[_msgSender()] += usdtAmount;
         IERC20(usdtAddress).transfer(owner(), usdtAmount);
         return true;
     }
