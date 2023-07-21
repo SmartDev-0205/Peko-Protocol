@@ -405,7 +405,7 @@ contract Lending is Claimable {
     address ethAddress;
     address usdtAddress;
     // liquidate limit percent , normally it is 90% but for the testing I set 3%
-    uint liquidationThreshhold = 3;
+    uint liquidationThreshhold = 90;
     // I am using this decimal when calcuate reward
     uint256 decimal = 100000000000000;
     uint secondApy = 317;
