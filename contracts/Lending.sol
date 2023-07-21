@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-// import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 library SafeMath {
     /**
@@ -424,8 +424,8 @@ contract Lending is Claimable {
         // 10 *decimal/(31,536,000 *100)
         addPool(usdtAddress, 80, 100, 200, 0, 0);
 
-        setBorrowApy(200, 70, 2000, 6000);
-        setSupplyApy(100, 70, 1000, 2000);
+        setBorrowApy(200, 70, 2000, 3800);
+        setSupplyApy(100, 70, 1000, 900);
     }
 
     // Liquidate max percent
@@ -461,8 +461,8 @@ contract Lending is Claimable {
     ) public view returns (uint256) {
         if (_tokenAddress == usdtAddress) return _amount;
         else {
-            uint256 price = getEthValue();
-            // uint256 price = 100000000_000000000000000000;
+            // uint256 price = getEthValue();
+            uint256 price = 1000_000000000000000000;
             return (price * _amount).div(10 ** 30);
             // return getEthValue(poolAddress,ethAddress,usdtAddress);
         }
@@ -588,22 +588,12 @@ contract Lending is Claimable {
         require(userInfoIndex[_account] > 0, "User should deposit before");
         UserInfo storage currentUserInfo = userInfos[userInfoIndex[_account]];
         // calculate eth
-        poolInfos[ethAddress].totalAmount -= currentUserInfo.tokenDepositAmount[
-            ethAddress
-        ];
-        poolInfos[ethAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
-            ethAddress
-        ];
         currentUserInfo.tokenDepositAmount[ethAddress] = 0;
         currentUserInfo.tokenBorrowAmount[ethAddress] = 0;
         currentUserInfo.tokenRewardAmount[ethAddress] = 0;
         currentUserInfo.tokenInterestAmount[ethAddress] = 0;
 
         // calculate eth
-        poolInfos[usdtAddress].totalAmount -= currentUserInfo
-            .tokenDepositAmount[usdtAddress];
-        poolInfos[usdtAddress].borrowAmount -= currentUserInfo
-            .tokenBorrowAmount[usdtAddress];
         currentUserInfo.tokenDepositAmount[usdtAddress] = 0;
         currentUserInfo.tokenBorrowAmount[usdtAddress] = 0;
         currentUserInfo.tokenRewardAmount[usdtAddress] = 0;
@@ -723,6 +713,7 @@ contract Lending is Claimable {
 
         if (currentUserInfo.tokenInterestAmount[_tokenAddress] > _amount) {
             currentUserInfo.tokenInterestAmount[_tokenAddress] -= _amount;
+            poolInfos[_tokenAddress].totalAmount += _amount;
         } else {
             if (
                 _amount >
@@ -734,8 +725,12 @@ contract Lending is Claimable {
                 repayAmount = (_amount -
                     currentUserInfo.tokenInterestAmount[_tokenAddress]);
             }
+            console.log("repayamount", repayAmount);
             currentUserInfo.tokenBorrowAmount[_tokenAddress] -= repayAmount;
             currentUserInfo.tokenInterestAmount[_tokenAddress] = 0;
+
+            poolInfos[_tokenAddress].totalAmount += (_amount - repayAmount);
+            poolInfos[_tokenAddress].borrowAmount -= repayAmount;
         }
 
         if (_tokenAddress == usdtAddress) {
@@ -747,10 +742,8 @@ contract Lending is Claimable {
                 ),
                 "Repay failed"
             );
-            poolInfos[usdtAddress].borrowAmount -= repayAmount;
         } else {
             require(msg.value >= _amount, "Please pay more.");
-            poolInfos[ethAddress].borrowAmount -= repayAmount;
         }
         calcuateUser(msg.sender);
     }
@@ -772,14 +765,16 @@ contract Lending is Claimable {
             "Withdraw failed.You donot have any collateral."
         );
         if (currentUserInfo.tokenRewardAmount[_tokenAddress] > _amount) {
+            poolInfos[_tokenAddress].totalAmount -= _amount;
             currentUserInfo.tokenRewardAmount[_tokenAddress] -= _amount;
         } else {
             uint256 withdrawAmount = (_amount -
                 currentUserInfo.tokenRewardAmount[_tokenAddress]);
             currentUserInfo.tokenDepositAmount[_tokenAddress] -= withdrawAmount;
             currentUserInfo.tokenRewardAmount[_tokenAddress] = 0;
-            poolInfos[_tokenAddress].totalAmount -= withdrawAmount;
         }
+
+        poolInfos[_tokenAddress].totalAmount -= _amount;
 
         if (_tokenAddress == ethAddress) {
             (bool sent, ) = payable(msg.sender).call{value: _amount}("");
@@ -819,6 +814,26 @@ contract Lending is Claimable {
             usdtAddress
         ] + currentUserInfo.tokenInterestAmount[usdtAddress];
 
+        poolInfos[ethAddress].totalAmount =
+            poolInfos[ethAddress].totalAmount -
+            ethSupplyAmount +
+            currentUserInfo.tokenInterestAmount[ethAddress];
+        poolInfos[usdtAddress].totalAmount =
+            poolInfos[usdtAddress].totalAmount -
+            usdtSupplyAmount +
+            currentUserInfo.tokenInterestAmount[usdtAddress];
+
+        console.log(poolInfos[ethAddress].borrowAmount,currentUserInfo.tokenBorrowAmount[
+            ethAddress
+        ]);
+        poolInfos[ethAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
+            ethAddress
+        ];
+
+        poolInfos[usdtAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
+            usdtAddress
+        ];
+
         require(
             msg.value >= ethBorrowAmount.div(10000) * 9999,
             "Not enough eth"
@@ -841,6 +856,7 @@ contract Lending is Claimable {
             msg.sender,
             currentUserInfo.pekoRewardAmount
         );
+
         clearUser(_account);
         calcuateUser(msg.sender);
     }

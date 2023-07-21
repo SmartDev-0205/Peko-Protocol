@@ -43,12 +43,12 @@ describe("contracts test", function () {
   it("send token to Contract", async () => {
     await pekoContract.transfer(
       lendingContract.address,
-      toBigNum("100000", 18)
+      toBigNum("1000000", 18)
     );
     let contractBalance = await pekoContract.balanceOf(lendingContract.address);
     await usdtContract.transfer(
       lendingContract.address,
-      toBigNum("100000", 18)
+      toBigNum("1000000", 18)
     );
     contractBalance = await usdtContract.balanceOf(lendingContract.address);
     var tx = await owner.sendTransaction({
@@ -59,7 +59,6 @@ describe("contracts test", function () {
   });
 
   it("Contract test", async () => {
-    return;
     // init platform
     // 10 *decimal/(31,536,000 *100) = 30 so 1% = 317, 1% meaning 100 so decimal  = 1e14
     // var tx = lendingContract.addPool(ethAddress, 80, 50, 100, 0, 0);
@@ -72,48 +71,96 @@ describe("contracts test", function () {
     // var tx = lendingContract.setSupplyApy(50, 70, 300, 2000);
     // await tx.wait();
 
-    // 1000$ deposit
-    var confirmTx = await usdtContract.approve(
-      lendingContract.address,
-      toBigNum("100000000", 6)
-    );
-    await confirmTx.wait();
+    // 10000000$ deposit
+    // var confirmTx = await usdtContract.approve(
+    //   lendingContract.address,
+    //   toBigNum("20000", 6)
+    // );
+    // await confirmTx.wait();
+
+    // var tx = await lendingContract.deposit(
+    //   usdtContract.address,
+    //   toBigNum("20000", 6)
+    // );
+    // await tx.wait();
 
     var tx = await lendingContract.deposit(
-      usdtContract.address,
-      toBigNum("100000000", 6)
-    );
-    await tx.wait();
-    var tx = await lendingContract.deposit(
       wethContract.address,
-      toBigNum("1", 18),
+      toBigNum("15", 18),
       {
-        value: toBigNum("1", 18),
+        value: toBigNum("15", 18),
       }
     );
     await tx.wait();
-    await mine(31_536_000);
 
-    var tx = await lendingContract.withdraw(
-      usdtContract.address,
-      toBigNum("10000000", 6)
+    var tx = await lendingContract.connect(addr1).deposit(
+      wethContract.address,
+      toBigNum("10", 18),
+      {
+        value: toBigNum("10", 18),
+      }
     );
     await tx.wait();
-
-    var userinfo = await lendingContract.getUserInfo(owner.address);
-    console.log("delay user info ", userinfo);
 
     var tx = await lendingContract.borrow(
       wethContract.address,
-      toBigNum("0.4", 18)
+      toBigNum("9", 18)
     );
     await tx.wait();
 
-    // var tx = await lendingContract.borrow(
-    //   usdtContract.address,
-    //   toBigNum("60000000", 6)
+    await mine(31_536_000);
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("before repay user info ", userinfo);
+
+    // var tx = await lendingContract.repay(
+    //   wethContract.address,
+    //   toBigNum("1000", 18),
+    //   { value: toBigNum("1000", 18) }
     // );
     // await tx.wait();
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("after repay user info ", userinfo);
+
+    // var poolinfo = await lendingContract.getPoolInfo(wethContract.address);
+    // console.log("after repay pool info ", poolinfo);
+
+    // var tx = await lendingContract.withdraw(
+    //   wethContract.address,
+    //   toBigNum("100", 18)
+    // );
+    // await tx.wait();
+    
+
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("after withdraw user info ", userinfo);
+
+    var poolinfo = await lendingContract.getPoolInfo(wethContract.address);
+    console.log("after withdraw pool info ", poolinfo);
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("after withdraw user info ", userinfo);
+
+    var confirmTx = await usdtContract.approve(
+      lendingContract.address,
+      userinfo.usdtBorrowAmount.add(userinfo.usdtInterestAmount)
+    );
+    await confirmTx.wait();
+
+    var tx = await lendingContract.liquidate(owner.address, {
+      value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
+    });
+
+
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("after liquidate user info ", userinfo);
+
+
+    var ethPool = await lendingContract.getPoolInfo(wethContract.address);
+    console.log("pool info ", ethPool);
+
+
 
     // var tx = await lendingContract.borrow(
     //   usdtContract.address,
@@ -157,11 +204,8 @@ describe("contracts test", function () {
     // var userinfo = await lendingContract.getUserInfo(owner.address);
     // console.log("user info ", userinfo);
 
-    var poolinfo = await lendingContract.getPoolInfo(usdtContract.address);
-    console.log("pool info ", poolinfo);
-
-    var listpools = await lendingContract.listPools();
-    console.log("listPools ", listpools);
+    // var listpools = await lendingContract.listPools();
+    // console.log("listPools ", listpools);
 
     // // var userinfo = await lendingContract.getUserInfo(owner.address);
     // // console.log("after user info ", userinfo);
