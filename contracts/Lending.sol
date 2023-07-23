@@ -338,6 +338,7 @@ interface Aggregator {
 contract Lending is Ownable {
     using SafeMath for uint256;
 
+    // Manage user info on contract
     struct UserInfo {
         address accountAddress; //Account Address
         uint256 lastInterest; //last timestamp that calcuate interest
@@ -348,6 +349,7 @@ contract Lending is Ownable {
         uint256 pekoRewardAmount; //deposit amount for token
     }
 
+    // Send result to frontend with this style
     struct UserInfoForDisplay {
         uint256 ethDepositAmount;
         uint256 usdtDepositAmount;
@@ -365,14 +367,18 @@ contract Lending is Ownable {
         address accountAddress;
     }
 
+    // show pool info
     struct PoolInfo {
-        uint LTV;
-        uint depositApy;
-        uint borrowApy;
+        uint256 LTV;
+        uint256 depositApy;
+        uint256 borrowApy;
         uint256 totalAmount;
         uint256 borrowAmount;
     }
 
+    // dynamic apy initial values
+    // if  U < Uₒₚₜᵢₘₐₗ :     Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
+    // if U ≥  Uₒₚₜᵢₘₐₗ :    Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
     struct APYInfo {
         uint256 r0;
         uint256 uOption;
@@ -380,26 +386,43 @@ contract Lending is Ownable {
         uint256 slope2;
     }
 
+    // Supply apy initial value
     APYInfo supplyAPY;
+    // Deposit apy inital value
     APYInfo borrowAPY;
+
+    // Save pools info
     mapping(address => PoolInfo) poolInfos;
+
+    // Save user info
     uint256 maxUserIndex;
     mapping(uint256 => UserInfo) userInfos;
     mapping(address => uint256) userInfoIndex;
 
     // Owner can withdraw only this amount
+    // profit = (interest - reward) when they liquidate,repay,withdraw
+    // Owner allowed to withdraw only this value, cannot withdraw user's money
     mapping(address => uint256) tokenProfit;
 
+    // Initial token addrewss (eth address means weth address)
     address rewardAddress;
     address ethAddress;
     address usdtAddress;
+
+    // reward token price 1 usd = 10000 peko
+    uint256 pekoPrice = 10000;
     // withdraw fee is 0.5%
-    uint withdrawFee = 50;
+    // when user withdraw and liquidate, 0.5 fee goes to owner wallet.
+    uint256 withdrawFee = 50;
     // liquidate limit percent , normally it is 90% but for the testing I set 3%
-    uint liquidationThreshhold = 3;
+    uint256 liquidationThreshhold = 1;
     // I am using this decimal when calcuate reward
     uint256 decimal = 100000000000000;
-    uint secondApy = 317;
+
+    // decimal/(31,536,000 *100) = 31709
+    // Because there is not decimal we show 1% as 100,so 1% APY = 317 second apy
+    uint256 secondApy = 317;
+
     address aggregatorInterface = 0x245e775A46B1AADacBd48279Cf0731CF186Cf2b2;
 
     constructor(
@@ -419,12 +442,13 @@ contract Lending is Ownable {
         setSupplyApy(0, 70, 1000, 1000);
     }
 
+    // Owner deposit reward token so they can claim this token
     function claimRewardToken(uint256 amount) external onlyOwner {
         IERC20(rewardAddress).transfer(owner(), amount);
     }
 
-    // Liquidate max percent
-    function setLiquidationThreshhold(uint limit) public onlyOwner {
+    // Liquidate max percent normally 90%
+    function setLiquidationThreshhold(uint256 limit) public onlyOwner {
         liquidationThreshhold = limit;
     }
 
@@ -436,7 +460,14 @@ contract Lending is Ownable {
         return tokenProfit[_tokenAddress];
     }
 
-    function claimProfit(address _tokenAddress, uint256 _amount) public {
+    function claimProfit(
+        address _tokenAddress,
+        uint256 _amount
+    ) public onlyOwner {
+        require(
+            poolInfos[_tokenAddress].totalAmount > _amount,
+            "Cannot withdraw more than profit"
+        );
         if (_tokenAddress == ethAddress) {
             (bool sent, ) = owner().call{value: _amount}("");
             require(sent, "Failed to send Ether");
@@ -448,9 +479,9 @@ contract Lending is Ownable {
 
     function addPool(
         address _tokenAddress,
-        uint _LTV,
-        uint _depositApy,
-        uint _borrowApy,
+        uint256 _LTV,
+        uint256 _depositApy,
+        uint256 _borrowApy,
         uint256 _totalAmount,
         uint256 _borrowAmount
     ) private {
@@ -463,7 +494,7 @@ contract Lending is Ownable {
         newPoolInfo.borrowAmount = _borrowAmount;
     }
 
-    // calcuate to usdt amout.
+    // calcuate to usdt amout. So if eth price is 1000 and _amount is 1e18 the the result is 1000 * 1000000 (usdc decimal is 6)
     function calcTokenPrice(
         address _tokenAddress,
         uint256 _amount
@@ -473,7 +504,6 @@ contract Lending is Ownable {
             uint256 price = getEthValue();
             // uint256 price = 1000_000000000000000000;
             return (price * _amount).div(10 ** 30);
-            // return getEthValue(poolAddress,ethAddress,usdtAddress);
         }
     }
 
@@ -496,6 +526,12 @@ contract Lending is Ownable {
         supplyAPY.slope2 = _rSlope2;
     }
 
+
+    function setPekoPrice(
+        uint256 _price
+    ) public onlyOwner {
+        pekoPrice = _price;
+    }
     function setBorrowApy(
         uint256 _r0,
         uint256 _uOption,
@@ -508,6 +544,9 @@ contract Lending is Ownable {
         borrowAPY.slope2 = _rSlope2;
     }
 
+    // Calculate apy from market size and borrow amount
+    // if  U < Uₒₚₜᵢₘₐₗ :     Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
+    // if U ≥  Uₒₚₜᵢₘₐₗ :    Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
     function calculateAPY(
         address _tokenAddress
     ) private view returns (uint256, uint256) {
@@ -559,8 +598,8 @@ contract Lending is Ownable {
     function calcuateUser(address _account) private {
         // if  U < Uₒₚₜᵢₘₐₗ :     Rₜ = R₀ + Uₜ/Uₒₚₜᵢₘₐₗ * Rₛₗₒₚₑ₁
         // if U ≥  Uₒₚₜᵢₘₐₗ :    Rₜ = R₀ + Rₛₗₒₚₑ₁ + (Uₜ-Uₒₚₜᵢₘₐₗ)/(1-Uₒₚₜᵢₘₐₗ) *Rₛₗₒₚₑ₂
-        // R₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Rₛₗₒₚₑ₁ = 5% Rₛₗₒₚₑ₂ = 26%
-        // S₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Sₛₗₒₚₑ₁ = 4% Sₛₗₒₚₑ₂ = 20%
+        // R₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Rₛₗₒₚₑ₁ = 2% Rₛₗₒₚₑ₂ = 60%
+        // S₀ = 0, Uₒₚₜᵢₘₐₗ = 70%,Sₛₗₒₚₑ₁ = 0% Sₛₗₒₚₑ₂ = 20%
 
         require(userInfoIndex[_account] > 0, "User should deposit before");
         UserInfo storage currentUserInfo = userInfos[userInfoIndex[_account]];
@@ -636,10 +675,10 @@ contract Lending is Ownable {
                 ),
                 "deposit failed"
             );
-            poolInfos[usdtAddress].totalAmount += _amount;
         } else {
-            poolInfos[ethAddress].totalAmount += _amount;
+            require(msg.value >= _amount, "You did not pay as amount");
         }
+        poolInfos[_tokenAddress].totalAmount += _amount;
         calcuateUser(msg.sender);
     }
 
@@ -692,7 +731,7 @@ contract Lending is Ownable {
         );
 
         uint256 borrowAmount = calcTokenPrice(_tokenAddress, _amount);
-        uint LTV = poolInfos[_tokenAddress].LTV;
+        uint256 LTV = poolInfos[_tokenAddress].LTV;
         require(
             (accountCollateral * LTV) / 100 > borrowAmount + accountDebt,
             "Please deposit more."
@@ -736,15 +775,14 @@ contract Lending is Ownable {
                     currentUserInfo.tokenInterestAmount[_tokenAddress]);
             }
             currentUserInfo.tokenBorrowAmount[_tokenAddress] -= repayAmount;
-            currentUserInfo.tokenInterestAmount[_tokenAddress] = 0;
             tokenProfit[_tokenAddress] += currentUserInfo.tokenInterestAmount[
                 _tokenAddress
             ];
+            currentUserInfo.tokenInterestAmount[_tokenAddress] = 0;
 
             poolInfos[_tokenAddress].totalAmount += (_amount - repayAmount);
             poolInfos[_tokenAddress].borrowAmount -= repayAmount;
         }
-
         if (_tokenAddress == usdtAddress) {
             require(
                 IERC20(usdtAddress).transferFrom(
@@ -788,27 +826,26 @@ contract Lending is Ownable {
             tokenProfit[_tokenAddress] -= currentUserInfo.tokenRewardAmount[
                 _tokenAddress
             ];
+            poolInfos[_tokenAddress].totalAmount -= _amount;
         }
-
-        poolInfos[_tokenAddress].totalAmount -= _amount;
 
         if (_tokenAddress == ethAddress) {
             (bool sent, ) = payable(msg.sender).call{
-                value: (_amount * 10000).div(10000 - withdrawFee)
+                value: (_amount * (10000 - withdrawFee)).div(10000)
             }("");
             require(sent, "failed to send eth interest.");
             (bool feeSent, ) = owner().call{
-                value: (_amount * 10000).div(withdrawFee)
+                value: (_amount * withdrawFee).div(10000)
             }("");
-            require(feeSent, "failed to send eth interest.");
+            require(feeSent, "failed to send fee eth interest.");
         } else {
             IERC20(usdtAddress).transfer(
                 msg.sender,
-                (_amount * 10000).div(10000 - withdrawFee)
+                (_amount * (10000 - withdrawFee)).div(10000)
             );
             IERC20(usdtAddress).transfer(
                 msg.sender,
-                (_amount * 10000).div(withdrawFee)
+                (_amount * withdrawFee).div(10000)
             );
         }
 
@@ -884,22 +921,22 @@ contract Lending is Ownable {
         );
 
         (bool sent, ) = payable(msg.sender).call{
-            value: (ethSupplyAmount * 10000).div(10000 - withdrawFee)
+            value: (ethSupplyAmount * (10000 - withdrawFee)).div(10000)
         }("");
         require(sent, "failed to send eth.");
 
         (bool feeSent, ) = owner().call{
-            value: (ethSupplyAmount * 10000).div(withdrawFee)
+            value: (ethSupplyAmount * withdrawFee).div(10000)
         }("");
         require(feeSent, "failed to send eth interest.");
 
         IERC20(usdtAddress).transfer(
             msg.sender,
-            (usdtSupplyAmount * 10000).div(10000 - withdrawFee)
+            (usdtSupplyAmount * (10000 - withdrawFee)).div(10000)
         );
         IERC20(usdtAddress).transfer(
             msg.sender,
-            (usdtSupplyAmount * 10000).div(withdrawFee)
+            (usdtSupplyAmount * withdrawFee).div(10000)
         );
 
         IERC20(rewardAddress).transfer(
@@ -911,6 +948,7 @@ contract Lending is Ownable {
         calcuateUser(msg.sender);
     }
 
+    // user claim reward token
     function claimPeko() public {
         uint256 userIndex = userInfoIndex[msg.sender];
         require(userIndex > 0, "User index should be bigger than 0.");
@@ -939,7 +977,8 @@ contract Lending is Ownable {
                     (currentUserInfo.tokenDepositAmount[ethAddress] *
                         poolInfos[ethAddress].depositApy *
                         timeDelta) / decimal
-                );
+                ) *
+                pekoPrice;
             uint256 ethRewardAmount = currentUserInfo.tokenRewardAmount[
                 ethAddress
             ] +
@@ -963,7 +1002,8 @@ contract Lending is Ownable {
                     (currentUserInfo.tokenDepositAmount[usdtAddress] *
                         poolInfos[usdtAddress].depositApy *
                         timeDelta) / decimal
-                );
+                ) *
+                pekoPrice;
             uint256 usdtRewardAmount = currentUserInfo.tokenRewardAmount[
                 usdtAddress
             ] +
@@ -1042,12 +1082,21 @@ contract Lending is Ownable {
         return userInfoDisplay;
     }
 
-    function listUserInfo() public view returns (UserInfoForDisplay[] memory) {
-        UserInfoForDisplay[] memory userList = new UserInfoForDisplay[](
-            maxUserIndex
-        );
-        for (uint256 i = 1; i < maxUserIndex + 1; i++) {
-            userList[i - 1] = (fetchUserInfo(i));
+    function getMemberNumber() public view returns (uint256) {
+        return maxUserIndex;
+    }
+
+    function listUserInfo(
+        uint256 page
+    ) public view returns (UserInfoForDisplay[] memory) {
+        UserInfoForDisplay[] memory userList = new UserInfoForDisplay[](100);
+        if (maxUserIndex >= page * 100) {
+            uint256 destValue = 0;
+            if (maxUserIndex >= page * 101) destValue = page * 101;
+            else destValue = maxUserIndex;
+            for (uint256 i = page * 100 + 1; i < destValue + 1; i++) {
+                userList[i - 1] = (fetchUserInfo(i));
+            }
         }
         return userList;
     }

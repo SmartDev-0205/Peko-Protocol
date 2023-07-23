@@ -84,6 +84,10 @@ describe("contracts test", function () {
     // );
     // await tx.wait();
 
+    // list users
+    var userlist = await lendingContract.listUserInfo(0);
+    console.log("At first user list",userlist);
+
     var tx = await lendingContract.deposit(
       wethContract.address,
       toBigNum("15", 18),
@@ -92,6 +96,8 @@ describe("contracts test", function () {
       }
     );
     await tx.wait();
+
+    console.log("Owner deposit success");
 
     var tx = await lendingContract.connect(addr1).deposit(
       wethContract.address,
@@ -110,27 +116,30 @@ describe("contracts test", function () {
 
     await mine(31_536_000);
 
-    // var userinfo = await lendingContract.getUserInfo(owner.address);
-    // console.log("before repay user info ", userinfo);
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("before repay user info ", userinfo);
 
-    // var tx = await lendingContract.repay(
-    //   wethContract.address,
-    //   toBigNum("1000", 18),
-    //   { value: toBigNum("1000", 18) }
-    // );
-    // await tx.wait();
+    var tx = await lendingContract.repay(
+      wethContract.address,
+      toBigNum("3", 18),
+      { value: toBigNum("3", 18) }
+    );
+    await tx.wait();
 
-    // var userinfo = await lendingContract.getUserInfo(owner.address);
-    // console.log("after repay user info ", userinfo);
+    var userinfo = await lendingContract.getUserInfo(owner.address);
+    console.log("after repay user info ", userinfo);
 
-    // var poolinfo = await lendingContract.getPoolInfo(wethContract.address);
-    // console.log("after repay pool info ", poolinfo);
+    var poolinfo = await lendingContract.getPoolInfo(wethContract.address);
+    console.log("after repay pool info ", poolinfo);
 
-    // var tx = await lendingContract.withdraw(
-    //   wethContract.address,
-    //   toBigNum("100", 18)
-    // );
-    // await tx.wait();
+    var profit = await lendingContract.getProfit(wethContract.address);
+    console.log("after repay profit ", profit);
+
+    var tx = await lendingContract.withdraw(
+      wethContract.address,
+      toBigNum("1", 18)
+    );
+    await tx.wait();
     
 
     var userinfo = await lendingContract.getUserInfo(owner.address);
@@ -152,13 +161,16 @@ describe("contracts test", function () {
       value: userinfo.ethBorrowAmount.add(userinfo.ethInterestAmount),
     });
 
+    var count = await lendingContract.getMemberNumber();
+    console.log("last user list",count);
 
-    var userinfo = await lendingContract.getUserInfo(owner.address);
-    console.log("after liquidate user info ", userinfo);
+
+    // var userinfo = await lendingContract.getUserInfo(owner.address);
+    // console.log("after liquidate user info ", userinfo);
 
 
-    var ethPool = await lendingContract.getPoolInfo(wethContract.address);
-    console.log("pool info ", ethPool);
+    // var ethPool = await lendingContract.getPoolInfo(wethContract.address);
+    // console.log("pool info ", ethPool);
 
 
 
