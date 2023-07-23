@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-import "hardhat/console.sol";
+// import "hardhat/console.sol";
 
 library SafeMath {
     /**
@@ -322,20 +322,6 @@ interface IERC20 {
     ) external returns (bool);
 }
 
-contract Claimable is Ownable {
-    function claimToken(
-        address tokenAddress,
-        uint256 amount
-    ) external onlyOwner {
-        IERC20(tokenAddress).transfer(owner(), amount);
-    }
-
-    function claimETH(uint256 amount) external onlyOwner {
-        (bool sent, ) = owner().call{value: amount}("");
-        require(sent, "Failed to send Ether");
-    }
-}
-
 interface Aggregator {
     function latestRoundData()
         external
@@ -349,7 +335,7 @@ interface Aggregator {
         );
 }
 
-contract Lending is Claimable {
+contract Lending is Ownable {
     using SafeMath for uint256;
 
     struct UserInfo {
@@ -401,11 +387,16 @@ contract Lending is Claimable {
     mapping(uint256 => UserInfo) userInfos;
     mapping(address => uint256) userInfoIndex;
 
+    // Owner can withdraw only this amount
+    mapping(address => uint256) tokenProfit;
+
     address rewardAddress;
     address ethAddress;
     address usdtAddress;
+    // withdraw fee is 0.5%
+    uint withdrawFee = 50;
     // liquidate limit percent , normally it is 90% but for the testing I set 3%
-    uint liquidationThreshhold = 90;
+    uint liquidationThreshhold = 3;
     // I am using this decimal when calcuate reward
     uint256 decimal = 100000000000000;
     uint secondApy = 317;
@@ -425,7 +416,11 @@ contract Lending is Claimable {
         addPool(usdtAddress, 80, 100, 200, 0, 0);
 
         setBorrowApy(200, 70, 2000, 3800);
-        setSupplyApy(100, 70, 1000, 900);
+        setSupplyApy(0, 70, 1000, 1000);
+    }
+
+    function claimRewardToken(uint256 amount) external onlyOwner {
+        IERC20(rewardAddress).transfer(owner(), amount);
     }
 
     // Liquidate max percent
@@ -435,6 +430,20 @@ contract Lending is Claimable {
 
     function getLiquidationThreshhold() public view returns (uint256) {
         return liquidationThreshhold;
+    }
+
+    function getProfit(address _tokenAddress) public view returns (uint256) {
+        return tokenProfit[_tokenAddress];
+    }
+
+    function claimProfit(address _tokenAddress, uint256 _amount) public {
+        if (_tokenAddress == ethAddress) {
+            (bool sent, ) = owner().call{value: _amount}("");
+            require(sent, "Failed to send Ether");
+        } else {
+            IERC20(_tokenAddress).transfer(owner(), _amount);
+        }
+        poolInfos[_tokenAddress].totalAmount -= _amount;
     }
 
     function addPool(
@@ -461,8 +470,8 @@ contract Lending is Claimable {
     ) public view returns (uint256) {
         if (_tokenAddress == usdtAddress) return _amount;
         else {
-            // uint256 price = getEthValue();
-            uint256 price = 1000_000000000000000000;
+            uint256 price = getEthValue();
+            // uint256 price = 1000_000000000000000000;
             return (price * _amount).div(10 ** 30);
             // return getEthValue(poolAddress,ethAddress,usdtAddress);
         }
@@ -714,6 +723,7 @@ contract Lending is Claimable {
         if (currentUserInfo.tokenInterestAmount[_tokenAddress] > _amount) {
             currentUserInfo.tokenInterestAmount[_tokenAddress] -= _amount;
             poolInfos[_tokenAddress].totalAmount += _amount;
+            tokenProfit[_tokenAddress] += _amount;
         } else {
             if (
                 _amount >
@@ -725,9 +735,11 @@ contract Lending is Claimable {
                 repayAmount = (_amount -
                     currentUserInfo.tokenInterestAmount[_tokenAddress]);
             }
-            console.log("repayamount", repayAmount);
             currentUserInfo.tokenBorrowAmount[_tokenAddress] -= repayAmount;
             currentUserInfo.tokenInterestAmount[_tokenAddress] = 0;
+            tokenProfit[_tokenAddress] += currentUserInfo.tokenInterestAmount[
+                _tokenAddress
+            ];
 
             poolInfos[_tokenAddress].totalAmount += (_amount - repayAmount);
             poolInfos[_tokenAddress].borrowAmount -= repayAmount;
@@ -767,20 +779,37 @@ contract Lending is Claimable {
         if (currentUserInfo.tokenRewardAmount[_tokenAddress] > _amount) {
             poolInfos[_tokenAddress].totalAmount -= _amount;
             currentUserInfo.tokenRewardAmount[_tokenAddress] -= _amount;
+            tokenProfit[_tokenAddress] -= _amount;
         } else {
             uint256 withdrawAmount = (_amount -
                 currentUserInfo.tokenRewardAmount[_tokenAddress]);
             currentUserInfo.tokenDepositAmount[_tokenAddress] -= withdrawAmount;
             currentUserInfo.tokenRewardAmount[_tokenAddress] = 0;
+            tokenProfit[_tokenAddress] -= currentUserInfo.tokenRewardAmount[
+                _tokenAddress
+            ];
         }
 
         poolInfos[_tokenAddress].totalAmount -= _amount;
 
         if (_tokenAddress == ethAddress) {
-            (bool sent, ) = payable(msg.sender).call{value: _amount}("");
+            (bool sent, ) = payable(msg.sender).call{
+                value: (_amount * 10000).div(10000 - withdrawFee)
+            }("");
             require(sent, "failed to send eth interest.");
+            (bool feeSent, ) = owner().call{
+                value: (_amount * 10000).div(withdrawFee)
+            }("");
+            require(feeSent, "failed to send eth interest.");
         } else {
-            IERC20(usdtAddress).transfer(msg.sender, _amount);
+            IERC20(usdtAddress).transfer(
+                msg.sender,
+                (_amount * 10000).div(10000 - withdrawFee)
+            );
+            IERC20(usdtAddress).transfer(
+                msg.sender,
+                (_amount * 10000).div(withdrawFee)
+            );
         }
 
         calcuateUser(msg.sender);
@@ -815,29 +844,36 @@ contract Lending is Claimable {
         ] + currentUserInfo.tokenInterestAmount[usdtAddress];
 
         poolInfos[ethAddress].totalAmount =
-            poolInfos[ethAddress].totalAmount -
-            ethSupplyAmount +
-            currentUserInfo.tokenInterestAmount[ethAddress];
+            poolInfos[ethAddress].totalAmount +
+            currentUserInfo.tokenInterestAmount[ethAddress] -
+            ethSupplyAmount;
         poolInfos[usdtAddress].totalAmount =
-            poolInfos[usdtAddress].totalAmount -
-            usdtSupplyAmount +
-            currentUserInfo.tokenInterestAmount[usdtAddress];
+            poolInfos[usdtAddress].totalAmount +
+            currentUserInfo.tokenInterestAmount[usdtAddress] -
+            usdtSupplyAmount;
 
-        console.log(poolInfos[ethAddress].borrowAmount,currentUserInfo.tokenBorrowAmount[
-            ethAddress
-        ]);
         poolInfos[ethAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
             ethAddress
         ];
 
-        poolInfos[usdtAddress].borrowAmount -= currentUserInfo.tokenBorrowAmount[
-            usdtAddress
-        ];
+        poolInfos[usdtAddress].borrowAmount -= currentUserInfo
+            .tokenBorrowAmount[usdtAddress];
+
+        tokenProfit[ethAddress] =
+            tokenProfit[ethAddress] +
+            currentUserInfo.tokenInterestAmount[ethAddress] -
+            currentUserInfo.tokenRewardAmount[ethAddress];
+
+        tokenProfit[usdtAddress] =
+            tokenProfit[usdtAddress] +
+            currentUserInfo.tokenInterestAmount[usdtAddress] -
+            currentUserInfo.tokenRewardAmount[usdtAddress];
 
         require(
             msg.value >= ethBorrowAmount.div(10000) * 9999,
             "Not enough eth"
         );
+
         require(
             IERC20(usdtAddress).transferFrom(
                 msg.sender,
@@ -847,10 +883,24 @@ contract Lending is Claimable {
             "deposit failed"
         );
 
-        (bool sent, ) = payable(msg.sender).call{value: ethSupplyAmount}("");
+        (bool sent, ) = payable(msg.sender).call{
+            value: (ethSupplyAmount * 10000).div(10000 - withdrawFee)
+        }("");
         require(sent, "failed to send eth.");
 
-        IERC20(usdtAddress).transfer(msg.sender, usdtSupplyAmount);
+        (bool feeSent, ) = owner().call{
+            value: (ethSupplyAmount * 10000).div(withdrawFee)
+        }("");
+        require(feeSent, "failed to send eth interest.");
+
+        IERC20(usdtAddress).transfer(
+            msg.sender,
+            (usdtSupplyAmount * 10000).div(10000 - withdrawFee)
+        );
+        IERC20(usdtAddress).transfer(
+            msg.sender,
+            (usdtSupplyAmount * 10000).div(withdrawFee)
+        );
 
         IERC20(rewardAddress).transfer(
             msg.sender,
