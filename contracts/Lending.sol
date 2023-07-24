@@ -733,7 +733,7 @@ contract Lending is Ownable {
         uint256 borrowAmount = calcTokenPrice(_tokenAddress, _amount);
         uint256 LTV = poolInfos[_tokenAddress].LTV;
         require(
-            (accountCollateral * LTV) / 100 > borrowAmount + accountDebt,
+            (accountCollateral * LTV) / 100 >= borrowAmount + accountDebt,
             "Please deposit more."
         );
 
