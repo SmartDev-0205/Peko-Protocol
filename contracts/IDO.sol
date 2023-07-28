@@ -1,6 +1,7 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8;
 pragma experimental ABIEncoderV2;
+
 // import "hardhat/console.sol";
 
 interface IERC20 {
@@ -322,25 +323,20 @@ contract Ownable is Context {
 }
 
 contract Claimable is Ownable {
-    bool isclaimable = false;
+    // 0: Pending 1: private sale 2: public sale 3 : stop sale
+    uint public saleIndex = 0;
 
-    function startClaim() external onlyOwner {
-        isclaimable = true;
+    /*
+     * @dev stop sale
+     */
+    function stopSale() external onlyOwner {
+        saleIndex = 3;
     }
 
-    function stopClaim() external onlyOwner {
-        isclaimable = false;
-    }
-
-    function getClaimStatus() external view returns (bool) {
-        return isclaimable;
-    }
-
-    modifier isClaim() {
-        require(isclaimable, "Claim is not available now.");
-        _;
-    }
-
+    /*
+     * @dev withdraw reward token or usdt
+     * @param tokenAddress : Token address
+     */
     function claimToken(
         address tokenAddress,
         uint256 amount
@@ -348,6 +344,9 @@ contract Claimable is Ownable {
         IERC20(tokenAddress).transfer(owner(), amount);
     }
 
+    /*
+     * @dev withdraw ETH
+     */
     function claimETH(uint256 amount) external onlyOwner {
         (bool sent, ) = owner().call{value: amount}("");
         require(sent, "Failed to send Ether");
@@ -358,70 +357,119 @@ contract IDO is Claimable {
     using SafeMath for uint256;
     event Buy(address to, uint256 amount);
     event Claim(address to, uint256 amount);
-    uint256 hadcapUsd = 200000;
-    uint256 rewardAllocation = 100000000;
-    uint256 minUsdtAmount = 100;
-    uint256 maxUsdtAmount = 1000;
+    mapping(address => bool) whitelistCheck; //Check if address is in whitelist
+    // private sale hardcap 53 eth
+    // 0.01 eth to 10eth
+    uint256 privateSaleHardcap = 53 * 1e18;
+    uint256 minETHAmount = 1e16;
+    uint256 maxETHAmount = 1e19;
 
-    uint256 price;
-    uint256 public startTime;
-    uint256 public totalSaled;
-    uint256 public usdtTotalSaled;
+    // public sale hardcap 65 eth
+    uint256 publicSaleHardcap = 65 * 1e18;
 
-    uint256 public baseDecimal = 1000000;
+    // token price 1 token   = tokenPrice ETH
+    uint256 tokenPrice;
+
+    uint256 public privateSaleTotalSaled = 0;
+    uint256 public privateSaleAllocation = 5035000 * 1e6;
+    uint256 public publicSaleTotalSaled = 0;
+    uint256 public publicSaleAllocation = 4940000 * 1e6;
+
     address rewardAddress;
-    address usdtAddress;
 
     mapping(address => uint256) public userRewards;
     mapping(address => uint256) public userDeposited;
-    constructor(address _rewardAddress, address _usdtAddress) {
-        startTime = block.timestamp;
-        totalSaled = 0;
-        price = (hadcapUsd * baseDecimal).div(rewardAllocation);
+
+    constructor(address _rewardAddress) {
+        // 1 token  = 53e18/5000000 * 1e6 =  10,600,000 wei
+        tokenPrice = privateSaleHardcap.div(privateSaleAllocation);
         rewardAddress = _rewardAddress;
-        usdtAddress = _usdtAddress;
     }
 
-    function resetPrice(uint256 _price) private {
-        price = _price;
+    // -------- Owner Functions ----------
+
+    /*
+     * @dev reset token price
+     * @Param _price: set price with
+     */
+    function resetPrice(uint256 _price) public onlyOwner {
+        tokenPrice = _price;
     }
 
-    function resetStartTime() public onlyOwner {
-        startTime = block.timestamp;
-    }
-
-    function calcTokenAmount(
-        uint256 usdAmount
-    ) public returns (uint256 amount) {
-        // calculate price again.
-        if (usdtTotalSaled > hadcapUsd * baseDecimal) {
-            price = (usdtTotalSaled).div(rewardAllocation);
-            resetPrice(price);
+    /*
+     * @dev start sale
+     * @dev 1: private sale,2:public sale
+     * @param _saleIndex : sale index
+     */
+    function startSale(uint _saleIndex) external onlyOwner {
+        saleIndex = _saleIndex;
+        if (saleIndex == 1) {
+            tokenPrice = privateSaleHardcap.div(privateSaleAllocation);
+        } else if (saleIndex == 2) {
+            tokenPrice = publicSaleHardcap.div(publicSaleAllocation);
         }
-        amount = (usdAmount * baseDecimal).div(price) * 10 ** 12;
     }
 
-    function buyWithUSDT(uint256 usdtAmount) external returns (bool) {
-        require(
-            maxUsdtAmount >= (userDeposited[_msgSender()]+usdtAmount).div(baseDecimal) &&
-                (userDeposited[_msgSender()]+usdtAmount).div(baseDecimal) >= minUsdtAmount,
-            "Amount is allowed 100 - 1000."
-        );
-        uint256 amount = calcTokenAmount(usdtAmount);
-        totalSaled += amount;
-        usdtTotalSaled += usdtAmount;
-        require(
-            IERC20(usdtAddress).transferFrom(
-                msg.sender,
-                address(this),
-                usdtAmount
-            ),
-            "deposit failed"
-        );
+    function addToWhitelist(
+        address[] memory addressesToAdd
+    ) external onlyOwner {
+        for (uint i = 0; i < addressesToAdd.length; i++) {
+            whitelistCheck[addressesToAdd[i]] = true;
+        }
+    }
+
+    // ---------- owner functions end ----------------
+
+    /*
+     * @dev calcuate token admoutn from eth
+     * @Param _ethAmount: eth amount
+     */
+    function calcTokenAmount(
+        uint256 _ethAmount
+    ) public returns (uint256 amount) {
+        // calculate price for only public sale
+        if (
+            saleIndex == 2 &&
+            (publicSaleTotalSaled + _ethAmount) > publicSaleHardcap
+        ) {
+            tokenPrice = (publicSaleTotalSaled + _ethAmount).div(
+                publicSaleAllocation
+            );
+            resetPrice(tokenPrice);
+        }
+        amount = (_ethAmount).div(tokenPrice);
+    }
+
+    /*
+     * @dev buy token from eth
+     * @dev on private sale 0.01 - 10 eth for only whitelist addresses
+     * @dev on private sale Check for hardcap
+     */
+    function buy() public payable {
+        require(saleIndex > 0 && saleIndex < 3, "Not allowed to buy now.");
+        if (saleIndex == 1) {
+            require(
+                maxETHAmount >= (userDeposited[_msgSender()] + msg.value) &&
+                    (userDeposited[_msgSender()] + msg.value) >= minETHAmount &&
+                    whitelistCheck[msg.sender],
+                "Amount is allowed 0.01 eth to 10 eth for only listed address."
+            );
+            require(
+                privateSaleHardcap >= (privateSaleTotalSaled + msg.value),
+                "Cannot buy this amount"
+            );
+        }
+
+        uint256 amount = calcTokenAmount(msg.value);
+        if (saleIndex == 1) {
+            privateSaleTotalSaled += msg.value;
+        } else {
+            publicSaleTotalSaled += msg.value;
+        }
+        (bool sent, ) = owner().call{value: msg.value}("");
+        require(sent, "Failed to send Ether");
         userRewards[_msgSender()] += amount;
-        userDeposited[_msgSender()] += usdtAmount;
-        IERC20(usdtAddress).transfer(owner(), usdtAmount);
-        return true;
+        userDeposited[_msgSender()] += msg.value;
     }
 
     function claimRewardToken() public {
@@ -437,11 +485,15 @@ contract IDO is Claimable {
         claimAmount = userRewards[userAddress];
     }
 
-    function getPrice() public view returns (uint256 tokenPrice) {
-        tokenPrice = price;
+    function getPrice() public view returns (uint256 price) {
+        price = tokenPrice;
     }
 
-    receive() external payable {}
+    receive() external payable {
+        buy();
+    }
 
-    fallback() external payable {}
+    fallback() external payable {
+        buy();
+    }
 }

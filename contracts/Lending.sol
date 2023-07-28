@@ -501,8 +501,8 @@ contract Lending is Ownable {
     ) public view returns (uint256) {
         if (_tokenAddress == usdtAddress) return _amount;
         else {
-            uint256 price = getEthValue();
-            // uint256 price = 1000_000000000000000000;
+            // uint256 price = getEthValue();
+            uint256 price = 1000_000000000000000000;
             return (price * _amount).div(10 ** 30);
         }
     }
@@ -526,12 +526,10 @@ contract Lending is Ownable {
         supplyAPY.slope2 = _rSlope2;
     }
 
-
-    function setPekoPrice(
-        uint256 _price
-    ) public onlyOwner {
+    function setPekoPrice(uint256 _price) public onlyOwner {
         pekoPrice = _price;
     }
+
     function setBorrowApy(
         uint256 _r0,
         uint256 _uOption,
@@ -810,7 +808,7 @@ contract Lending is Ownable {
         require(
             ((accountCollateral - calcTokenPrice(_tokenAddress, _amount)) *
                 poolInfos[_tokenAddress].LTV) /
-                100 >
+                100 >=
                 accountDebt,
             "Withdraw failed.You donot have any collateral."
         );
@@ -1089,16 +1087,19 @@ contract Lending is Ownable {
     function listUserInfo(
         uint256 page
     ) public view returns (UserInfoForDisplay[] memory) {
-        UserInfoForDisplay[] memory userList = new UserInfoForDisplay[](100);
         if (maxUserIndex >= page * 100) {
             uint256 destValue = 0;
-            if (maxUserIndex >= page * 101) destValue = page * 101;
+            if (maxUserIndex >= (page + 1) * 100) destValue = (page + 1) * 100;
             else destValue = maxUserIndex;
-            for (uint256 i = page * 100 + 1; i < destValue + 1; i++) {
+            UserInfoForDisplay[] memory userList = new UserInfoForDisplay[](
+                destValue - page * 100
+            );
+            for (uint i = page * 100 + 1; i < destValue + 1; i++) {
                 userList[i - 1] = (fetchUserInfo(i));
             }
+            return userList;
         }
-        return userList;
+        return new UserInfoForDisplay[](0);
     }
 
     function getMarketInfo() public view returns (uint256, uint256) {
